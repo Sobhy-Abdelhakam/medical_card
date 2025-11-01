@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert'; // لتحليل JSON
 import 'package:flutter/material.dart';
-import 'package:euro_medical_card/screen/main2.dart';
+import 'package:euro_medical_card/screen/main_app.dart';
 import 'package:euro_medical_card/screen/welcome_page.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:http/http.dart' as http; // مكتبة HTTP
@@ -80,7 +80,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
     if (isLoggedIn) {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const Main2()),
+        MaterialPageRoute(builder: (context) => const MainApp()),
       );
     } else {
       Navigator.pushReplacement(
@@ -208,7 +208,7 @@ class UpdateScreen extends StatelessWidget {
                 if (isLoggedIn) {
                   Navigator.pushReplacement(
                     context,
-                    MaterialPageRoute(builder: (context) => const Main2()),
+                    MaterialPageRoute(builder: (context) => const MainApp()),
                   );
                 } else {
                   Navigator.pushReplacement(

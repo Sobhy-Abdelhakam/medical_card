@@ -7,25 +7,16 @@ import '../widget/color.dart';
 import 'card_data.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
-class Main2 extends StatelessWidget {
-  const Main2({super.key});
+class MainApp extends StatefulWidget {
+  const MainApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return const BottomNavigationBarExample();
-  }
+  State<MainApp> createState() =>
+      _MainAppState();
 }
 
-class BottomNavigationBarExample extends StatefulWidget {
-  const BottomNavigationBarExample({super.key});
-
-  @override
-  State<BottomNavigationBarExample> createState() =>
-      _BottomNavigationBarExampleState();
-}
-
-class _BottomNavigationBarExampleState
-    extends State<BottomNavigationBarExample> {
+class _MainAppState
+    extends State<MainApp> {
   int _selectedIndex = 0;
   static final List<Widget> _widgetOptions = <Widget>[
     const MapData(),

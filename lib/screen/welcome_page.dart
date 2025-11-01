@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:euro_medical_card/screen/main2.dart';
+import 'package:euro_medical_card/screen/main_app.dart';
 
 import '../widget/color.dart';
 
@@ -64,7 +64,7 @@ class _WelcomePage extends State<WelcomePage> {
       await prefs.setBool('isLoggedIn', true);
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const Main2()),
+        MaterialPageRoute(builder: (context) => const MainApp()),
       );
     }
   }
