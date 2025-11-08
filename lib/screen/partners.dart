@@ -232,8 +232,8 @@ class _PartnersScreenState extends State<PartnersScreen> {
                         return Padding(
                           padding: EdgeInsets.symmetric(vertical: 8.h),
                           child: ListTile(
-                            leading:
-                                Icon(Icons.phone, color: theme.colorScheme.primary),
+                            leading: Icon(Icons.phone,
+                                color: theme.colorScheme.primary),
                             title: Text(
                               number,
                               style: TextStyle(
@@ -276,14 +276,6 @@ class _PartnersScreenState extends State<PartnersScreen> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: isLandscape
-            ? null
-            : AppBar(
-                iconTheme: const IconThemeData(color: Colors.white),
-                backgroundColor: theme.colorScheme.primary,
-                title: const Text('كبار الشركاء',
-                    style: TextStyle(color: Colors.white)),
-              ),
         body: SafeArea(
           top: !isLandscape,
           child: RefreshIndicator(
