@@ -320,7 +320,7 @@ class _ShowDataState extends State<ShowData> {
                               children: [
                                 Expanded(
                                   child: DropdownButtonFormField<String>(
-                                    value: selectedCity,
+                                    initialValue: selectedCity,
                                     decoration: InputDecoration(
                                       border: OutlineInputBorder(
                                         borderRadius:

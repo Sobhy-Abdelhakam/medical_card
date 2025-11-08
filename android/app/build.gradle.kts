@@ -41,8 +41,17 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
 
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
+
         // Inject Google Maps API key into manifest
         manifestPlaceholders["GOOGLE_MAPS_API_KEY"] = mapsApiKey
+    }
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging = false
+        }
     }
 
     buildTypes {
