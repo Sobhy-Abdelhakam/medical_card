@@ -1,10 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import '../model/dataModel.dart';
-import 'data.dart';
 
 class PartnersScreen extends StatefulWidget {
   const PartnersScreen({super.key});
@@ -14,511 +14,451 @@ class PartnersScreen extends StatefulWidget {
 }
 
 class _PartnersScreenState extends State<PartnersScreen> {
-  String get apiUrl => "https://providers.euro-assist.com/api/arabic-providers";
+  final String allProvidersUrl =
+      "https://providers.euro-assist.com/api/arabic-providers";
   final String topProvidersUrl =
       "https://providers.euro-assist.com/api/top-providers";
 
-  List<ServiceProvider> allServiceProviders = [];
-  List<ServiceProvider> filteredProviders = [];
-  List<String> cities = [];
-  String? selectedCity;
-  bool isLoading = false;
-  String? errorMessage;
+  // State variables
+  bool _isLoading = true;
+  String? _errorMessage;
+  List<ServiceProvider> _allServiceProviders = [];
+  List<ServiceProvider> _filteredProviders = [];
+  List<TopProvider> _topProviders = [];
+  List<String> _cities = [];
 
-  List<TopProvider> topProviders = [];
-  bool isLoadingTopProviders = false;
-  String? topProvidersError;
+  // Filter and search state
+  String? _selectedCity;
+  final TextEditingController _searchController = TextEditingController();
 
   final ScrollController _scrollController = ScrollController();
-
-  final TextEditingController _searchController = TextEditingController();
-  String searchQuery = '';
-
-  // Hardcoded major partners
 
   @override
   void initState() {
     super.initState();
-    fetchData();
-    fetchTopProviders();
+    _searchController.addListener(_applyFilters);
+    _fetchAllData();
   }
 
   @override
   void dispose() {
-    _scrollController.dispose();
+    _searchController.removeListener(_applyFilters);
     _searchController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
-  Future<void> fetchData() async {
+  Future<void> _fetchAllData() async {
     setState(() {
-      isLoading = true;
-      errorMessage = null;
-      allServiceProviders.clear();
-      filteredProviders.clear();
-      cities.clear();
+      _isLoading = true;
+      _errorMessage = null;
     });
 
     try {
-      final response = await http
-          .get(Uri.parse(apiUrl))
-          .timeout(const Duration(seconds: 10));
-      if (response.statusCode == 200) {
-        final List<dynamic> dataList = json.decode(response.body);
-        Set<String> citySet = Set.from(cities);
-        List<ServiceProvider> providersList = [];
+      // Fetch all data in parallel
+      final responses = await Future.wait([
+        http.get(Uri.parse(allProvidersUrl)),
+        http.get(Uri.parse(topProvidersUrl)),
+      ]);
 
-        for (var item in dataList) {
+      // Process all providers response
+      if (responses[0].statusCode == 200) {
+        final List<dynamic> dataList = json.decode(responses[0].body);
+        final Set<String> citySet = {};
+        final providersList = dataList.map((item) {
           final provider = ServiceProvider.fromJson(item);
-          providersList.add(provider);
           if (provider.city.isNotEmpty) citySet.add(provider.city);
-        }
+          return provider;
+        }).toList();
 
-        setState(() {
-          allServiceProviders = providersList;
-          cities = citySet.toList();
-          filterData();
-        });
+        _allServiceProviders = providersList;
+        _cities = citySet.toList()..sort();
       } else {
-        throw Exception('خطأ في تحميل البيانات: ${response.statusCode}');
+        throw Exception('Failed to load service providers');
       }
-    } catch (e) {
-      setState(() {
-        errorMessage = "فشل تحميل البيانات، تأكد من اتصال الإنترنت.";
-      });
-    } finally {
-      setState(() {
-        isLoading = false;
-      });
-    }
-  }
 
-  Future<void> fetchTopProviders() async {
-    setState(() {
-      isLoadingTopProviders = true;
-      topProvidersError = null;
-      topProviders.clear();
-    });
-    try {
-      final response = await http
-          .get(Uri.parse(topProvidersUrl))
-          .timeout(const Duration(seconds: 10));
-      if (response.statusCode == 200) {
-        final jsonData = json.decode(response.body);
+      // Process top providers response
+      if (responses[1].statusCode == 200) {
+        final jsonData = json.decode(responses[1].body);
         if (jsonData['success'] == true && jsonData['data'] is List) {
-          setState(() {
-            topProviders = (jsonData['data'] as List)
-                .map((item) => TopProvider.fromJson(item))
-                .toList();
-          });
-        } else {
-          throw Exception('خطأ في تحميل كبار الشركاء');
+          _topProviders = (jsonData['data'] as List)
+              .map((item) => TopProvider.fromJson(item))
+              .toList();
         }
-      } else {
-        throw Exception('خطأ في تحميل كبار الشركاء: ${response.statusCode}');
-      }
+      } // Silently fail for top providers if needed
+
+      _applyFilters();
     } catch (e) {
-      setState(() {
-        topProvidersError = "فشل تحميل كبار الشركاء";
-      });
+      _errorMessage = "فشل تحميل البيانات، تأكد من اتصال الإنترنت.";
     } finally {
-      setState(() {
-        isLoadingTopProviders = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
-  void filterData() {
+  void _applyFilters() {
     setState(() {
-      filteredProviders = allServiceProviders
-          .where((provider) =>
-              (selectedCity == null || provider.city == selectedCity))
-          .toList();
+      _filteredProviders = _allServiceProviders.where((provider) {
+        final searchTearm = _searchController.text.toLowerCase();
+        final matchesCity =
+            _selectedCity == null || provider.city == _selectedCity;
+        final matchesSearch = searchTearm.isEmpty ||
+            provider.name.toLowerCase().contains(searchTearm);
+        return matchesCity && matchesSearch;
+      }).toList();
     });
   }
 
-  void searchPartner(String searchTerm) {
-    setState(() {
-      searchQuery = searchTerm;
-      filteredProviders = allServiceProviders
-          .where((provider) =>
-              provider.name.toLowerCase().contains(searchTerm.toLowerCase()) &&
-              (selectedCity == null || provider.city == selectedCity))
-          .toList();
-    });
-  }
-
-  List<String> _splitPhoneNumbers(String phoneNumbers) {
-    return phoneNumbers
-        .split('/')
-        .map((number) => number.trim())
-        .where((number) => number.isNotEmpty)
-        .toList();
-  }
-
-  Future<void> _makePhoneCall(String phoneNumber) async {
-    final Uri launchUri = Uri(
-      scheme: 'tel',
-      path: phoneNumber,
-    );
-    try {
-      if (await canLaunchUrl(launchUri)) {
-        await launchUrl(launchUri);
-      } else {
-        throw 'تعذر فتح تطبيق الهاتف';
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('تعذر الاتصال: ${e.toString()}'),
-          backgroundColor: Colors.red,
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        body: SafeArea(
+          child: _isLoading
+              ? _buildLoading()
+              : _errorMessage != null
+                  ? _buildError()
+                  : RefreshIndicator(
+                      onRefresh: _fetchAllData,
+                      child: CustomScrollView(
+                        controller: _scrollController,
+                        slivers: [
+                          _buildSectionTitle("كبار الشركاء"),
+                          _buildTopProvidersGrid(),
+                          _buildSectionTitle("ابحث في الشبكة الطبية"),
+                          _buildFiltersSection(),
+                          _buildProvidersSliverList(),
+                        ],
+                      ),
+                    ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildLoading() =>
+      const Center(child: CircularProgressIndicator());
+
+  Widget _buildError() => Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(_errorMessage!),
+            SizedBox(height: 16.h),
+            ElevatedButton(
+              onPressed: _fetchAllData,
+              child: const Text("إعادة المحاولة"),
+            )
+          ],
+        ),
+      );
+
+  Widget _buildSectionTitle(String title) {
+    return SliverToBoxAdapter(
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 16.h),
+        child: Text(
+          title,
+          style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTopProvidersGrid() {
+    if (_topProviders.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
+
+    return SliverPadding(
+      padding: EdgeInsets.symmetric(horizontal: 16.w),
+      sliver: SliverGrid(
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount:
+              MediaQuery.of(context).orientation == Orientation.landscape
+                  ? 4
+                  : 2,
+          crossAxisSpacing: 16.w,
+          mainAxisSpacing: 16.h,
+          childAspectRatio: 0.9,
+        ),
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            final topProvider = _topProviders[index];
+            return _TopProviderCard(
+              provider: topProvider,
+              onTap: () {
+                _searchController.text = topProvider.nameArabic;
+                // Scroll to the list
+                final targetPosition = _scrollController.position.maxScrollExtent / 2;
+                _scrollController.animateTo(
+                  targetPosition,
+                  duration: const Duration(milliseconds: 500),
+                  curve: Curves.easeInOut,
+                );
+              },
+            );
+          },
+          childCount: _topProviders.length,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFiltersSection() {
+    return SliverToBoxAdapter(
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: 16.w),
+        child: Column(
+          children: [
+            // Search Field
+            TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'ابحث بالاسم...',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12.r),
+                ),
+                filled: true,
+                fillColor: Colors.grey[200],
+                contentPadding: EdgeInsets.symmetric(vertical: 10.h),
+              ),
+            ),
+            SizedBox(height: 12.h),
+            // City Filter Dropdown
+            if (_cities.isNotEmpty)
+              DropdownButtonFormField<String>(
+                value: _selectedCity,
+                hint: const Text('اختر مدينة'),
+                isExpanded: true,
+                decoration: InputDecoration(
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12.r),
+                  ),
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+                ),
+                onChanged: (String? newValue) {
+                  setState(() {
+                    _selectedCity = newValue;
+                    _applyFilters();
+                  });
+                },
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: null,
+                    child: Text('كل المدن'),
+                  ),
+                  ..._cities.map<DropdownMenuItem<String>>((String value) {
+                    return DropdownMenuItem<String>(
+                      value: value,
+                      child: Text(value),
+                    );
+                  }),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProvidersSliverList() {
+    if (_filteredProviders.isEmpty && _searchController.text.isNotEmpty) {
+      return const SliverFillRemaining(
+        child: Center(child: Text("لا توجد نتائج مطابقة للبحث")),
+      );
+    }
+
+    return SliverList(
+      delegate: SliverChildBuilderDelegate(
+        (context, index) {
+          final provider = _filteredProviders[index];
+          return Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
+            child: _ServiceProviderCard(provider: provider),
+          );
+        },
+        childCount: _filteredProviders.length,
+      ),
+    );
+  }
+}
+
+// --- WIDGETS ---
+
+class _TopProviderCard extends StatelessWidget {
+  final TopProvider provider;
+  final VoidCallback onTap;
+
+  const _TopProviderCard({required this.provider, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Card(
+        elevation: 4,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.r)),
+        child: Padding(
+          padding: EdgeInsets.all(12.w),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12.r),
+                child: Image.network(
+                  provider.logoUrl,
+                  height: 80.w,
+                  width: 80.w,
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) =>
+                      Icon(Icons.business, size: 80.w, color: Colors.grey),
+                ),
+              ),
+              SizedBox(height: 12.h),
+              Expanded(
+                child: Text(
+                  provider.nameArabic,
+                  style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ServiceProviderCard extends StatelessWidget {
+  final ServiceProvider provider;
+
+  const _ServiceProviderCard({required this.provider});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.r)),
+      child: Padding(
+        padding: EdgeInsets.all(12.w),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              provider.name,
+              style: TextStyle(
+                fontSize: 16.sp,
+                fontWeight: FontWeight.bold,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+            SizedBox(height: 8.h),
+            _InfoRow(icon: Icons.category, text: provider.type),
+            if (provider.city.isNotEmpty)
+              _InfoRow(icon: Icons.location_city, text: provider.city),
+            if (provider.address.isNotEmpty)
+              _InfoRow(icon: Icons.place, text: provider.address),
+            if (provider.discount.isNotEmpty)
+              _InfoRow(
+                  icon: Icons.discount,
+                  text: provider.discount,
+                  color: Colors.green),
+            if (provider.phone.isNotEmpty)
+              Padding(
+                padding: EdgeInsets.only(top: 8.h),
+                child: ElevatedButton.icon(
+                  onPressed: () => _showCallDialog(context, provider.phone),
+                  icon: const Icon(Icons.phone),
+                  label: const Text("اتصال"),
+                  style: ElevatedButton.styleFrom(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8.r),
+                    ),
+                  ),
+                ),
+              )
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _makePhoneCall(BuildContext context, String phoneNumber) async {
+    final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
+    if (!await launchUrl(launchUri)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذر إجراء المكالمة')),
       );
     }
   }
 
   void _showCallDialog(BuildContext context, String phoneNumbers) {
-    final theme = Theme.of(context);
-    final List<String> numbers = _splitPhoneNumbers(phoneNumbers);
-    final isLandscape =
-        MediaQuery.of(context).orientation == Orientation.landscape;
+    final numbers = phoneNumbers
+        .split('/')
+        .map((n) => n.trim())
+        .where((n) => n.isNotEmpty)
+        .toList();
 
     showDialog(
       context: context,
       builder: (BuildContext context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16.0),
-          ),
-          insetPadding: EdgeInsets.symmetric(
-            horizontal: isLandscape ? 80.w : 20.w,
-            vertical: isLandscape ? 20.h : 80.h,
-          ),
-          child: Container(
-            padding: EdgeInsets.all(20.w),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16.0),
-            ),
+        return AlertDialog(
+          title: const Text('اختر رقم للاتصال'),
+          content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  padding: EdgeInsets.all(12.w),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.phone,
-                    size: isLandscape ? 28.w : 32.w,
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-                SizedBox(height: 16.h),
-                Text(
-                  'اختر رقم للاتصال',
-                  style: TextStyle(
-                    fontSize: isLandscape ? 16.sp : 18.sp,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                SizedBox(height: 16.h),
-                SizedBox(
-                  height: isLandscape ? 120.h : null,
-                  child: SingleChildScrollView(
-                    child: Column(
-                      children: numbers.map((number) {
-                        return Padding(
-                          padding: EdgeInsets.symmetric(vertical: 8.h),
-                          child: ListTile(
-                            leading: Icon(Icons.phone,
-                                color: theme.colorScheme.primary),
-                            title: Text(
-                              number,
-                              style: TextStyle(
-                                fontSize: isLandscape ? 14.sp : 16.sp,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            onTap: () {
-                              Navigator.of(context).pop();
-                              _makePhoneCall(number);
-                            },
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                ),
-                SizedBox(height: 16.h),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: Text('إلغاء'),
-                  ),
-                ),
-              ],
+              children: numbers
+                  .map((number) => ListTile(
+                        leading: const Icon(Icons.phone),
+                        title: Text(number),
+                        onTap: () {
+                          Navigator.of(context).pop();
+                          _makePhoneCall(context, number);
+                        },
+                      ))
+                  .toList(),
             ),
           ),
+          actions: [
+            TextButton(
+              child: const Text('إلغاء'),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+          ],
         );
       },
     );
   }
+}
+
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  final Color? color;
+
+  const _InfoRow({required this.icon, required this.text, this.color});
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isLandscape =
-        MediaQuery.of(context).orientation == Orientation.landscape;
-
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
-        body: SafeArea(
-          top: !isLandscape,
-          child: RefreshIndicator(
-            onRefresh: () async {
-              await fetchData();
-              await fetchTopProviders();
-            },
-            child: isLoading
-                ? Center(
-                    child: CircularProgressIndicator(
-                        color: theme.colorScheme.primary))
-                : errorMessage != null
-                    ? Center(
-                        child: Text(
-                          errorMessage!,
-                          style:
-                              TextStyle(fontSize: isLandscape ? 14.sp : 16.sp),
-                        ),
-                      )
-                    : Column(
-                        children: [
-                          if (!isLandscape) SizedBox(height: 8.h),
-                          // Top Providers Horizontal List
-                          if (isLoadingTopProviders)
-                            SizedBox(
-                              height: 100.h,
-                              child: Center(
-                                  child: CircularProgressIndicator(
-                                      color: theme.colorScheme.primary)),
-                            )
-                          else if (topProvidersError != null)
-                            Padding(
-                              padding: EdgeInsets.all(8.w),
-                              child: Text(topProvidersError!,
-                                  style: TextStyle(color: Colors.red)),
-                            )
-                          else if (topProviders.isNotEmpty)
-                            Padding(
-                              padding: EdgeInsets.symmetric(
-                                  horizontal: isLandscape ? 24.w : 16.w),
-                              child: GridView.builder(
-                                shrinkWrap: true,
-                                physics: NeverScrollableScrollPhysics(),
-                                gridDelegate:
-                                    SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: 2,
-                                  crossAxisSpacing: 16.w,
-                                  mainAxisSpacing: 16.h,
-                                  childAspectRatio:
-                                      0.95, // Adjust for card shape
-                                ),
-                                itemCount: topProviders.length,
-                                itemBuilder: (context, idx) {
-                                  final top = topProviders[idx];
-                                  return GestureDetector(
-                                    onTap: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (context) => ShowData(
-                                            item: '',
-                                            searchOnly: true,
-                                            key: UniqueKey(),
-                                          ),
-                                          settings: RouteSettings(
-                                            arguments: {
-                                              'search': top.nameArabic,
-                                              'searchOnly': true,
-                                              'type': top
-                                                  .typeArabic, // Add the type field here
-                                            },
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                    child: Card(
-                                      elevation: 6,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius:
-                                            BorderRadius.circular(18.w),
-                                      ),
-                                      child: Padding(
-                                        padding: EdgeInsets.all(16.w),
-                                        child: Column(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          children: [
-                                            ClipRRect(
-                                              borderRadius:
-                                                  BorderRadius.circular(12.w),
-                                              child: Image.network(
-                                                top.logoUrl,
-                                                height: 80.w,
-                                                width: 80.w,
-                                                fit: BoxFit.cover,
-                                                errorBuilder: (context, error,
-                                                        stackTrace) =>
-                                                    Icon(Icons.broken_image,
-                                                        size: 80.w),
-                                              ),
-                                            ),
-                                            SizedBox(height: 16.h),
-                                            Text(
-                                              top.nameArabic,
-                                              style: TextStyle(
-                                                  fontSize: 18.sp,
-                                                  fontWeight: FontWeight.bold),
-                                              textAlign: TextAlign.center,
-                                              maxLines: 2,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                          if (!isLandscape) SizedBox(height: 8.h),
-
-                          SizedBox(height: 16.h),
-
-                          // City Filter
-                        ],
-                      ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _infoRow(IconData icon, String text,
-      {bool isLink = false, Color color = Colors.grey, VoidCallback? onTap}) {
-    final isLandscape =
-        MediaQuery.of(context).orientation == Orientation.landscape;
-
     return Padding(
       padding: EdgeInsets.symmetric(vertical: 4.h),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: isLandscape ? 16.w : 18.w, color: color),
+          Icon(icon, size: 18.w, color: color ?? Colors.grey[700]),
           SizedBox(width: 8.w),
           Expanded(
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: isLink
-                  ? InkWell(
-                      onTap: onTap,
-                      child: Text(
-                        text.replaceAll('/', ' / '),
-                        style: TextStyle(
-                          color: Colors.blue,
-                          decoration: TextDecoration.underline,
-                          fontSize: isLandscape ? 12.sp : 14.sp,
-                        ),
-                      ),
-                    )
-                  : Text(
-                      text,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: isLandscape ? 12.sp : 14.sp),
-                    ),
-            ),
+            child: Text(text, style: TextStyle(fontSize: 14.sp)),
           ),
         ],
       ),
-    );
-  }
-
-  Future<void> _openLocationOnMap(String mapUrl) async {
-    final Uri uri = Uri.parse(mapUrl);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر فتح خرائط جوجل')),
-      );
-    }
-  }
-
-  void _showProviderDetailsPopup(ServiceProvider provider, bool isLandscape) {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return Dialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
-          child: SingleChildScrollView(
-            padding: EdgeInsets.all(20.w),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(provider.name,
-                    style: TextStyle(
-                        fontSize: 20.sp,
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.primary)),
-                SizedBox(height: 12.h),
-                Divider(),
-                if (provider.type.isNotEmpty)
-                  _infoRow(Icons.category, provider.type),
-                if (provider.city.isNotEmpty)
-                  _infoRow(Icons.location_on, provider.city),
-                if (provider.address.isNotEmpty)
-                  _infoRow(Icons.place, provider.address),
-                if (provider.phone.isNotEmpty)
-                  _infoRow(Icons.phone, provider.phone, isLink: true,
-                      onTap: () {
-                    _showCallDialog(context, provider.phone);
-                  }),
-                if (provider.discount.isNotEmpty)
-                  _infoRow(Icons.discount, provider.discount,
-                      color: Colors.green),
-                if (provider.specialization != null &&
-                    provider.specialization!.isNotEmpty)
-                  _infoRow(Icons.medical_services, provider.specialization!,
-                      color: Colors.purple),
-                if (provider.package != null && provider.package!.isNotEmpty)
-                  _infoRow(Icons.card_giftcard, provider.package!,
-                      color: Colors.orange),
-                if (provider.mapUrl.isNotEmpty)
-                  Padding(
-                    padding: EdgeInsets.only(top: 8.h),
-                    child: ElevatedButton.icon(
-                      onPressed: () => _openLocationOnMap(provider.mapUrl),
-                      icon: Icon(Icons.map),
-                      label: Text('افتح في خرائط جوجل'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8.w),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        );
-      },
     );
   }
 }
