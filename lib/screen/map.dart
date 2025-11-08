@@ -10,8 +10,6 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'dart:ui' as ui;
 
-import '../widget/color.dart';
-
 class MapData extends StatefulWidget {
   const MapData({super.key});
 
@@ -215,7 +213,7 @@ class _MapDataState extends State<MapData> {
 
       // Draw the icon
       final TextPainter textPainter =
-      TextPainter(textDirection: TextDirection.ltr);
+          TextPainter(textDirection: TextDirection.ltr);
       textPainter.text = TextSpan(
         text: String.fromCharCode(iconData.codePoint),
         style: TextStyle(
@@ -490,7 +488,7 @@ class _MapDataState extends State<MapData> {
                         style: TextStyle(
                           fontSize: 18.sp,
                           fontWeight: FontWeight.bold,
-                          color: AppColors.primary,
+                          color: Theme.of(context).colorScheme.primary,
                         ),
                       ),
                       SizedBox(height: 12.h),
@@ -664,6 +662,7 @@ class _MapDataState extends State<MapData> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final bool allLoaded = locationLoaded && markersLoaded;
     final bool bothFailed = (locationError || currentLocation == null) &&
         (markersError || markers.isEmpty);
@@ -680,7 +679,7 @@ class _MapDataState extends State<MapData> {
             bottom: 80.0), // Move button higher above zoom controls
         child: FloatingActionButton(
           heroTag: "legend",
-          backgroundColor: AppColors.primary,
+          backgroundColor: theme.colorScheme.primary,
           onPressed: () => setState(() => showLegend = !showLegend),
           child: Icon(showLegend ? Icons.close : Icons.info_outline,
               color: Colors.white),
@@ -689,8 +688,8 @@ class _MapDataState extends State<MapData> {
       body: Stack(
         children: [
           if (!allLoaded)
-            const Center(
-                child: CircularProgressIndicator(color: AppColors.primary))
+            Center(
+                child: CircularProgressIndicator(color: theme.colorScheme.primary))
           else if (!canShowMap && errorMessage != null)
             Center(
               child: Column(
@@ -766,7 +765,7 @@ class _MapDataState extends State<MapData> {
                     ),
                   ],
                   border: Border.all(
-                    color: AppColors.primary.withOpacity(0.3),
+                    color: theme.colorScheme.primary.withOpacity(0.3),
                     width: 1.w,
                   ),
                 ),
@@ -781,14 +780,14 @@ class _MapDataState extends State<MapData> {
                           style: TextStyle(
                             fontSize: 18.sp,
                             fontWeight: FontWeight.bold,
-                            color: AppColors.primary,
+                            color: theme.colorScheme.primary,
                           ),
                         ),
                         IconButton(
                           icon: Icon(
                             Icons.cancel,
                             size: 20.w,
-                            color: AppColors.primary,
+                            color: theme.colorScheme.primary,
                           ),
                           onPressed: () => setState(() => showLegend = false),
                           padding: EdgeInsets.zero,
@@ -854,20 +853,20 @@ class _MapDataState extends State<MapData> {
                       padding:
                           EdgeInsets.symmetric(horizontal: 8.w, vertical: 6.h),
                       decoration: BoxDecoration(
-                        color: AppColors.primary.withOpacity(0.1),
+                        color: theme.colorScheme.primary.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(8.w),
                       ),
                       child: Row(
                         children: [
                           Icon(Icons.location_history_sharp,
-                              color: AppColors.primary, size: 24.w),
+                              color: theme.colorScheme.primary, size: 24.w),
                           SizedBox(width: 10.w),
                           Text(
                             'موقعك الحالي',
                             style: TextStyle(
                               fontSize: 14.sp,
                               fontWeight: FontWeight.w500,
-                              color: AppColors.primary,
+                              color: theme.colorScheme.primary,
                             ),
                           ),
                         ],

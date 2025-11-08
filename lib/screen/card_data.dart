@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../widget/color.dart';
 import 'data.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -9,9 +8,9 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [Colors.white, AppColors.primary],
+            colors: [Colors.white, Theme.of(context).colorScheme.primary],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
@@ -117,10 +116,10 @@ class _AnimatedCardState extends State<AnimatedCard> with SingleTickerProviderSt
                     padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 10.0), // تقليل المسافة العلوية والسفلية
                     child: Text(
                       category['title']!,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
-                        color: AppColors.primary,
+                        color: Theme.of(context).colorScheme.primary,
                       ),
                     ),
                   ),

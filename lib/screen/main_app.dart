@@ -3,7 +3,6 @@ import 'package:euro_medical_card/screen/map.dart';
 import 'package:euro_medical_card/screen/profile.dart';
 import 'package:euro_medical_card/screen/partners.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import '../widget/color.dart';
 import 'card_data.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
@@ -39,7 +38,7 @@ class _MainAppState
 
     return Scaffold(
       appBar: isLandscape ? null : AppBar( // Hide AppBar in landscape mode
-        backgroundColor: AppColors.primary,
+        backgroundColor: Theme.of(context).colorScheme.primary,
         iconTheme: const IconThemeData(color: Colors.white),
         title: const Text('Euro Medical Card', style: TextStyle(color: Colors.white)),
       ),
@@ -81,7 +80,7 @@ class _MainAppState
         currentIndex: _selectedIndex,
         selectedItemColor: Colors.white,
         unselectedItemColor: Colors.white60,
-        backgroundColor: AppColors.primary,
+        backgroundColor: Theme.of(context).colorScheme.primary,
         selectedLabelStyle: TextStyle(
           fontSize: fontSize,
         ),

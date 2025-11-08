@@ -4,7 +4,6 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import '../model/dataModel.dart';
-import '../widget/color.dart';
 import 'data.dart';
 
 class PartnersScreen extends StatefulWidget {
@@ -179,6 +178,7 @@ class _PartnersScreenState extends State<PartnersScreen> {
   }
 
   void _showCallDialog(BuildContext context, String phoneNumbers) {
+    final theme = Theme.of(context);
     final List<String> numbers = _splitPhoneNumbers(phoneNumbers);
     final isLandscape =
         MediaQuery.of(context).orientation == Orientation.landscape;
@@ -206,13 +206,13 @@ class _PartnersScreenState extends State<PartnersScreen> {
                 Container(
                   padding: EdgeInsets.all(12.w),
                   decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.1),
+                    color: theme.colorScheme.primary.withValues(alpha: 0.1),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
                     Icons.phone,
                     size: isLandscape ? 28.w : 32.w,
-                    color: AppColors.primary,
+                    color: theme.colorScheme.primary,
                   ),
                 ),
                 SizedBox(height: 16.h),
@@ -233,7 +233,7 @@ class _PartnersScreenState extends State<PartnersScreen> {
                           padding: EdgeInsets.symmetric(vertical: 8.h),
                           child: ListTile(
                             leading:
-                                Icon(Icons.phone, color: AppColors.primary),
+                                Icon(Icons.phone, color: theme.colorScheme.primary),
                             title: Text(
                               number,
                               style: TextStyle(
@@ -269,6 +269,7 @@ class _PartnersScreenState extends State<PartnersScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final isLandscape =
         MediaQuery.of(context).orientation == Orientation.landscape;
 
@@ -279,7 +280,7 @@ class _PartnersScreenState extends State<PartnersScreen> {
             ? null
             : AppBar(
                 iconTheme: const IconThemeData(color: Colors.white),
-                backgroundColor: AppColors.primary,
+                backgroundColor: theme.colorScheme.primary,
                 title: const Text('كبار الشركاء',
                     style: TextStyle(color: Colors.white)),
               ),
@@ -291,8 +292,9 @@ class _PartnersScreenState extends State<PartnersScreen> {
               await fetchTopProviders();
             },
             child: isLoading
-                ? const Center(
-                    child: CircularProgressIndicator(color: AppColors.primary))
+                ? Center(
+                    child: CircularProgressIndicator(
+                        color: theme.colorScheme.primary))
                 : errorMessage != null
                     ? Center(
                         child: Text(
@@ -310,7 +312,7 @@ class _PartnersScreenState extends State<PartnersScreen> {
                               height: 100.h,
                               child: Center(
                                   child: CircularProgressIndicator(
-                                      color: AppColors.primary)),
+                                      color: theme.colorScheme.primary)),
                             )
                           else if (topProvidersError != null)
                             Padding(
@@ -481,7 +483,7 @@ class _PartnersScreenState extends State<PartnersScreen> {
                     style: TextStyle(
                         fontSize: 20.sp,
                         fontWeight: FontWeight.bold,
-                        color: AppColors.primary)),
+                        color: Theme.of(context).colorScheme.primary)),
                 SizedBox(height: 12.h),
                 Divider(),
                 if (provider.type.isNotEmpty)

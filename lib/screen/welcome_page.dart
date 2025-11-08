@@ -3,8 +3,6 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:euro_medical_card/screen/main_app.dart';
 
-import '../widget/color.dart';
-
 class WelcomePage extends StatefulWidget {
   const WelcomePage({super.key});
 
@@ -30,7 +28,8 @@ class _WelcomePage extends State<WelcomePage> {
     {
       "image": "assets/images/splash2.jpg",
       "title": "وصول سهل وسريع",
-      "description": "وصول سهل سريع بضفطة واحده هتحصل علي اقرب شبكة طبية او مقدم خدمة ليك ....شوف الافضل ."
+      "description":
+          "وصول سهل سريع بضفطة واحده هتحصل علي اقرب شبكة طبية او مقدم خدمة ليك ....شوف الافضل ."
     },
   ];
 
@@ -71,6 +70,7 @@ class _WelcomePage extends State<WelcomePage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final double screenWidth = MediaQuery.of(context).size.width;
 
     return Scaffold(
@@ -98,14 +98,15 @@ class _WelcomePage extends State<WelcomePage> {
                           width: screenWidth,
                           height: 400.h,
                           child: ClipRRect(
-                            child: (imageLoaded.length > index && imageLoaded[index])
+                            child: (imageLoaded.length > index &&
+                                    imageLoaded[index])
                                 ? Image.asset(
-                              introData[index]["image"]!,
-                              fit: BoxFit.cover,
-                            )
+                                    introData[index]["image"]!,
+                                    fit: BoxFit.cover,
+                                  )
                                 : const Center(
-                              child: CircularProgressIndicator(),
-                            ),
+                                    child: CircularProgressIndicator(),
+                                  ),
                           ),
                         ),
                         const SizedBox(height: 20),
@@ -114,7 +115,7 @@ class _WelcomePage extends State<WelcomePage> {
                           style: TextStyle(
                             fontSize: 24.sp,
                             fontWeight: FontWeight.bold,
-                            color: AppColors.primary,
+                            color: theme.colorScheme.primary,
                           ),
                         ),
                         const SizedBox(height: 10),
@@ -144,14 +145,14 @@ class _WelcomePage extends State<WelcomePage> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: List.generate(
                       introData.length,
-                          (index) => AnimatedContainer(
+                      (index) => AnimatedContainer(
                         duration: const Duration(milliseconds: 300),
                         margin: const EdgeInsets.symmetric(horizontal: 5),
                         width: _currentIndex == index ? 12 : 8,
                         height: 8.h,
                         decoration: BoxDecoration(
                           color: _currentIndex == index
-                              ? AppColors.primary
+                              ? theme.colorScheme.primary
                               : Colors.grey[400],
                           borderRadius: BorderRadius.circular(10),
                         ),
@@ -162,14 +163,17 @@ class _WelcomePage extends State<WelcomePage> {
                   ElevatedButton(
                     onPressed: _nextPage,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      padding: EdgeInsets.symmetric(horizontal: 40.w, vertical: 15.h),
+                      backgroundColor: theme.colorScheme.primary,
+                      padding: EdgeInsets.symmetric(
+                          horizontal: 40.w, vertical: 15.h),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
                     ),
                     child: Text(
-                      _currentIndex == introData.length - 1 ? 'ابدأ الآن' : 'التالي',
+                      _currentIndex == introData.length - 1
+                          ? 'ابدأ الآن'
+                          : 'التالي',
                       style: TextStyle(fontSize: 18.sp, color: Colors.white),
                     ),
                   ),

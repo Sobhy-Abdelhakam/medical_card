@@ -4,7 +4,6 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import '../model/dataModel.dart';
-import '../widget/color.dart';
 
 class ShowData extends StatefulWidget {
   final String item;
@@ -215,13 +214,13 @@ class _ShowDataState extends State<ShowData> {
                 Container(
                   padding: EdgeInsets.all(12.w),
                   decoration: BoxDecoration(
-                    color: AppColors.primary.withOpacity(0.1),
+                    color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
                     Icons.phone,
                     size: isLandscape ? 28.w : 32.w,
-                    color: AppColors.primary,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
                 ),
                 SizedBox(height: 16.h),
@@ -242,7 +241,7 @@ class _ShowDataState extends State<ShowData> {
                           padding: EdgeInsets.symmetric(vertical: 8.h),
                           child: ListTile(
                             leading:
-                                Icon(Icons.phone, color: AppColors.primary),
+                                Icon(Icons.phone, color: Theme.of(context).colorScheme.primary),
                             title: Text(
                               number,
                               style: TextStyle(
@@ -288,7 +287,7 @@ class _ShowDataState extends State<ShowData> {
             ? null
             : AppBar(
                 iconTheme: const IconThemeData(color: Colors.white),
-                backgroundColor: AppColors.primary,
+                backgroundColor: Theme.of(context).colorScheme.primary,
                 title: Text(widget.item,
                     style: const TextStyle(color: Colors.white)),
               ),
@@ -299,8 +298,8 @@ class _ShowDataState extends State<ShowData> {
               await fetchData();
             },
             child: isLoading
-                ? const Center(
-                    child: CircularProgressIndicator(color: AppColors.primary))
+                ? Center(
+                    child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary))
                 : errorMessage != null
                     ? Center(
                         child: Text(
@@ -327,7 +326,7 @@ class _ShowDataState extends State<ShowData> {
                                         borderRadius:
                                             BorderRadius.circular(10.w),
                                         borderSide: BorderSide(
-                                            color: AppColors.primary,
+                                            color: Theme.of(context).colorScheme.primary,
                                             width: 1.w),
                                       ),
                                       contentPadding: EdgeInsets.symmetric(
@@ -384,7 +383,7 @@ class _ShowDataState extends State<ShowData> {
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(10.w),
                                   borderSide: BorderSide(
-                                      color: AppColors.primary, width: 1.w),
+                                      color: Theme.of(context).colorScheme.primary, width: 1.w),
                                 ),
                                 contentPadding: EdgeInsets.symmetric(
                                     horizontal: 12.w, vertical: 12.h),
@@ -436,7 +435,7 @@ class _ShowDataState extends State<ShowData> {
                                             ),
                                             leading: Icon(
                                               Icons.business,
-                                              color: AppColors.primary,
+                                              color: Theme.of(context).colorScheme.primary,
                                               size: isLandscape ? 28.w : 32.w,
                                             ),
                                             title: Text(
@@ -601,7 +600,7 @@ class _ShowDataState extends State<ShowData> {
                     style: TextStyle(
                         fontSize: 20.sp,
                         fontWeight: FontWeight.bold,
-                        color: AppColors.primary)),
+                        color: Theme.of(context).colorScheme.primary)),
                 SizedBox(height: 12.h),
                 Divider(),
                 if (provider.type.isNotEmpty)
