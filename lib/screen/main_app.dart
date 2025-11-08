@@ -10,12 +10,10 @@ class MainApp extends StatefulWidget {
   const MainApp({super.key});
 
   @override
-  State<MainApp> createState() =>
-      _MainAppState();
+  State<MainApp> createState() => _MainAppState();
 }
 
-class _MainAppState
-    extends State<MainApp> {
+class _MainAppState extends State<MainApp> {
   int _selectedIndex = 0;
   static final List<Widget> _widgetOptions = <Widget>[
     const MapData(),
@@ -32,16 +30,22 @@ class _MainAppState
 
   @override
   Widget build(BuildContext context) {
-    final bool isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
-    final double iconSize = isLandscape ? 14.w : 20.w; // Smaller icons for 4 items
-    final double fontSize = isLandscape ? 9.sp : 11.sp; // Smaller font for 4 items
+    final bool isLandscape =
+        MediaQuery.of(context).orientation == Orientation.landscape;
+    final double iconSize =
+        isLandscape ? 14.w : 20.w; // Smaller icons for 4 items
+    final double fontSize =
+        isLandscape ? 9.sp : 11.sp; // Smaller font for 4 items
 
     return Scaffold(
-      appBar: isLandscape ? null : AppBar( // Hide AppBar in landscape mode
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        iconTheme: const IconThemeData(color: Colors.white),
-        title: const Text('Euro Medical Card', style: TextStyle(color: Colors.white)),
-      ),
+      appBar: isLandscape
+          ? null
+          : AppBar(
+              // Hide AppBar in landscape mode
+              title: const Text(
+                'Euro Medical Card',
+              ),
+            ),
       body: IndexedStack(
         index: _selectedIndex,
         children: _widgetOptions,
@@ -78,17 +82,12 @@ class _MainAppState
           ),
         ],
         currentIndex: _selectedIndex,
-        selectedItemColor: Colors.white,
-        unselectedItemColor: Colors.white60,
-        backgroundColor: Theme.of(context).colorScheme.primary,
         selectedLabelStyle: TextStyle(
           fontSize: fontSize,
         ),
         unselectedLabelStyle: TextStyle(
           fontSize: fontSize,
         ),
-        showSelectedLabels: true,
-        showUnselectedLabels: true,
         type: BottomNavigationBarType.fixed,
         onTap: _onItemTapped,
       ),
