@@ -9,12 +9,12 @@
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <application
-        android:label="medical_card"
+        android:label="Euro Medical Card"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <!-- Google Maps API Key -->
-        <meta-data android:name="com.google.android.geo.API_KEY" 
-        android:value="AIzaSyDz6AzIpwFJyhVbNmMWBTRX0AhICIPVERM"
+        <meta-data android:name="com.google.android.geo.API_KEY"
+        android:value="${GOOGLE_MAPS_API_KEY}"
         />
         
         <activity
