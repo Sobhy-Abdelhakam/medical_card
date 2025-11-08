@@ -19,7 +19,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 1.0.0+3
 
 environment:
-  sdk: ^3.6.0
+  sdk: '>=3.2.3 <4.0.0'
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -28,33 +28,31 @@ environment:
 # the latest version available on pub.dev. To see which dependencies have newer
 # versions available, run `flutter pub outdated`.
 dependencies:
+  animated_background: ^2.0.0
+  animated_text_kit: ^4.2.0
+  cached_network_image: ^3.4.1
+  connectivity_plus: ^7.0.0
+  cupertino_icons: ^1.0.8
   flutter:
     sdk: flutter
-
-  # The following adds the Cupertino Icons font to your application.
-  # Use with the CupertinoIcons class for iOS style icons.
-  cupertino_icons: ^1.0.8
-  animated_text_kit: ^4.2.0
-  lottie: ^2.4.1
-  animated_background: ^2.0.0
-  http: ^1.2.2
-  smooth_page_indicator: ^1.2.0+3
-  flutter_map: ^5.0.0
-  latlong2: ^0.9.0
-  geolocator: ^13.0.2 # للحصول على الموقع الجغرافي
-  permission_handler: ^11.0.0
-  url_launcher: ^6.2.5
-  shared_preferences: ^2.2.0
-  cached_network_image: ^3.4.1
-  connectivity_plus: ^6.1.3
-  intl: ^0.19.0
-  shimmer: ^3.0.0
-  font_awesome_flutter: ^10.5.0
+  flutter_map: ^8.2.2
   flutter_screenutil: ^5.5.4
+  font_awesome_flutter: ^10.5.0
+  geolocator: ^14.0.2
   google_maps_flutter: ^2.6.0
+  http: ^1.2.2
+  intl: ^0.20.2
+  latlong2: ^0.9.0
+  lottie: ^3.3.2
+  permission_handler: ^12.0.1
+  shared_preferences: ^2.2.0
+  shimmer: ^3.0.0
+  smooth_page_indicator: ^1.2.0+3
+  url_launcher: ^6.2.5
+  version: ^3.0.2
 
 dev_dependencies:
-  flutter_launcher_icons: ^0.13.1
+  flutter_launcher_icons: ^0.14.4
   flutter_test:
     sdk: flutter
 flutter_launcher_icons:
@@ -71,7 +69,6 @@ flutter_launcher_icons:
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
-
 # The following section is specific to Flutter packages.
 flutter:
 
@@ -84,13 +81,10 @@ flutter:
   assets:
     - assets/images/
     - assets/icons/
-
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
-
   # For details regarding adding assets from package dependencies, see
   # https://flutter.dev/to/asset-from-package
-
   # To add custom fonts to your application, add a fonts section here,
   # in this "flutter" section. Each entry in this list should have a
   # "family" key with the font family name, and a "fonts" key with a

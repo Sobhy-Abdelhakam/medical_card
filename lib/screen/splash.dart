@@ -5,8 +5,10 @@ import 'package:euro_medical_card/screen/main_app.dart';
 import 'package:euro_medical_card/screen/welcome_page.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:http/http.dart' as http; // مكتبة HTTP
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart'; // مكتبة URL Launcher
+import 'package:version/version.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -19,14 +21,12 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
   late AnimationController _controller;
   late Animation<double> _animation;
 
-  final String currentVersion = "1.0.0"; // إصدار التطبيق الحالي
   final String updateCheckUrl = "https://qr.euro-assist.com/maps/version.json"; // رابط ملف JSON
 
   @override
   void initState() {
     super.initState();
 
-    // إعداد AnimationController
     _controller = AnimationController(
       duration: const Duration(seconds: 3),
       vsync: this,
@@ -36,66 +36,57 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
       CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
     );
 
-    // التحقق من وجود تحديث بعد 4 ثوانٍ
-    Timer(const Duration(seconds: 6), () async {
-      await _checkForUpdate();
-    });
+    // Start update check and navigation concurrently
+    _initApp();
+  }
+
+  Future<void> _initApp() async {
+    // Wait for at least 4 seconds for the splash animation to be visible
+    await Future.delayed(const Duration(seconds: 4));
+    _checkForUpdate();
   }
 
   Future<void> _checkForUpdate() async {
     try {
-      // استدعاء API لجلب ملف JSON
+      final packageInfo = await PackageInfo.fromPlatform();
+      final currentVersion = Version.parse(packageInfo.version);
+
       final response = await http.get(Uri.parse(updateCheckUrl));
 
       if (response.statusCode == 200) {
-        // فك الترميز باستخدام UTF-8
         final data = json.decode(utf8.decode(response.bodyBytes));
-        final String latestVersion = data['version']; // الإصدار الموجود في JSON
-        final String downloadUrl = data['url']; // رابط التحميل من JSON
-        final String status = data['status']; // حالة التحديث
-        final String title = data['title'] ?? "تحديث جديد"; // عنوان التحديث
-        final String content = data['message'] ?? "يتوفر إصدار جديد من التطبيق. يُرجى تنزيله للحصول على الميزات الجديدة."; // محتوى التحديث
-        final String button1 = data['button1'] ?? "تحميل التحديث"; // نص الزر الأول
-        final String button2 = data['button2'] ?? "ليس الآن"; // نص الزر الثاني
+        final latestVersion = Version.parse(data['version']);
+        final String downloadUrl = data['url'];
+        final String status = data['status'];
+        final String title = data['title'] ?? "تحديث جديد";
+        final String content = data['message'] ?? "يتوفر إصدار جديد من التطبيق. يُرجى تنزيله للحصول على الميزات الجديدة.";
+        final String button1 = data['button1'] ?? "تحميل التحديث";
+        final String button2 = data['button2'] ?? "ليس الآن";
 
-        // إذا كان هناك إصدار جديد، عرض شاشة التحديث
-        if (_isNewVersionAvailable(latestVersion)) {
+        if (latestVersion > currentVersion) {
           _showUpdateScreen(downloadUrl, status, title, content, button1, button2);
           return;
         }
       }
     } catch (e) {
-      // في حالة وجود خطأ، يمكنك تسجيله أو تجاهله
       print("خطأ أثناء جلب التحديث: $e");
     }
 
-    // إذا لم يكن هناك تحديث، الانتقال إلى الصفحة التالية
-    await _navigateToNextPage();
+    _navigateToNextPage();
   }
-
 
   Future<void> _navigateToNextPage() async {
+    if (!mounted) return;
     SharedPreferences prefs = await SharedPreferences.getInstance();
     bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
-    if (isLoggedIn) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const MainApp()),
-      );
-    } else {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => WelcomePage()),
-      );
-    }
-  }
-
-  bool _isNewVersionAvailable(String latestVersion) {
-    // مقارنة الإصدار الحالي مع الإصدار الجديد
-    return currentVersion != latestVersion;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => isLoggedIn ? const MainApp() : WelcomePage()),
+    );
   }
 
   void _showUpdateScreen(String downloadUrl, String status, String title, String content, String button1, String button2) {
+    if (!mounted) return;
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -106,6 +97,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
           content: content,
           button1: button1,
           button2: button2,
+          onComplete: _navigateToNextPage,
         ),
       ),
     );
@@ -125,7 +117,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
         child: ScaleTransition(
           scale: _animation,
           child: Image.asset(
-            'assets/images/logo.jpg', // استبدل هذا بمسار الصورة الخاص بك
+            'assets/images/logo.jpg',
             width: 150,
             height: 150,
           ),
@@ -142,6 +134,7 @@ class UpdateScreen extends StatelessWidget {
   final String content;
   final String button1;
   final String button2;
+  final VoidCallback onComplete;
 
   const UpdateScreen({
     super.key,
@@ -151,12 +144,13 @@ class UpdateScreen extends StatelessWidget {
     required this.content,
     required this.button1,
     required this.button2,
+    required this.onComplete,
   });
 
-  // دالة لفتح رابط التحميل
   Future<void> _launchURL() async {
-    if (await canLaunch(downloadUrl)) {
-      await launch(downloadUrl); // فتح الرابط في المتصفح
+    final Uri url = Uri.parse(downloadUrl);
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
     } else {
       throw 'تعذر فتح الرابط: $downloadUrl';
     }
@@ -164,7 +158,7 @@ class UpdateScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool isMandatory = status == "1"; // تحقق إذا كان التحديث إلزاميًا
+    final bool isMandatory = status == "1";
 
     return Scaffold(
       appBar: AppBar(
@@ -180,46 +174,30 @@ class UpdateScreen extends StatelessWidget {
             Text(
               content,
               textAlign: TextAlign.center,
-              style:  TextStyle(fontSize: 18.sp),
+              style: TextStyle(fontSize: 18.sp),
             ),
-             SizedBox(height: 20.h),
+            SizedBox(height: 20.h),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                padding:  EdgeInsets.symmetric(vertical: 16.h, horizontal: 32.w),
+                padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 32.w),
                 backgroundColor: Colors.red,
               ),
-              onPressed: _launchURL, // استخدام الدالة لفتح الرابط
+              onPressed: _launchURL,
               child: Text(
                 button1,
-                style:  TextStyle(fontSize: 20.sp, color: Colors.white),
+                style: TextStyle(fontSize: 20.sp, color: Colors.white),
               ),
             ),
-             SizedBox(height: 20.h),
+            SizedBox(height: 20.h),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                padding:  EdgeInsets.symmetric(vertical: 16.h, horizontal: 32.w),
+                padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 32.w),
                 backgroundColor: Colors.blueAccent,
               ),
-              onPressed: isMandatory
-                  ? null // تعطيل الزر إذا كان التحديث إلزاميًا
-                  : () async {
-                SharedPreferences prefs = await SharedPreferences.getInstance();
-                bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
-                if (isLoggedIn) {
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(builder: (context) => const MainApp()),
-                  );
-                } else {
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(builder: (context) => WelcomePage()),
-                  );
-                }
-              },
+              onPressed: isMandatory ? null : onComplete,
               child: Text(
                 button2,
-                style:  TextStyle(fontSize: 20.sp, color: Colors.white),
+                style: TextStyle(fontSize: 20.sp, color: Colors.white),
               ),
             ),
           ],
