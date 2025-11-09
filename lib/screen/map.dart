@@ -94,11 +94,14 @@ class _MapDataState extends State<MapData> {
     _searchController.addListener(_onSearchChanged);
   }
 
+  Timer? _debounce;
+
   @override
   void dispose() {
     _connectivitySubscription?.cancel();
     _mapController?.dispose();
     _searchController.dispose();
+    _debounce?.cancel();
     super.dispose();
   }
 
@@ -177,28 +180,40 @@ class _MapDataState extends State<MapData> {
 
   // --- Search Logic ---
   void _onSearchChanged() {
-    final query = _searchController.text.toLowerCase();
-    if (query.isEmpty) {
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+    _debounce = Timer(const Duration(seconds: 2), () {
+      final query = _searchController.text.toLowerCase().trim();
+
+      // Reset if query is empty
+      if (query.isEmpty) {
+        if (_filteredProviders.length != _allProviders.length) {
+          setState(() {
+            _filteredProviders = _allProviders;
+          });
+        }
+        return;
+      }
+
+      // Only search if 3 or more characters are typed
+      if (query.length < 3) {
+        return;
+      }
+
+      final filtered = _allProviders.where((provider) {
+        final name = (provider['name'] ?? '').toLowerCase();
+        final city = (provider['city'] ?? '').toLowerCase();
+        final type = (provider['type'] ?? '').toLowerCase();
+        return name.contains(query) ||
+            city.contains(query) ||
+            type.contains(query);
+      }).toList();
+
       setState(() {
-        _filteredProviders = _allProviders;
+        _filteredProviders = filtered;
       });
-      return;
-    }
 
-    final filtered = _allProviders.where((provider) {
-      final name = (provider['name'] ?? '').toLowerCase();
-      final city = (provider['city'] ?? '').toLowerCase();
-      final type = (provider['type'] ?? '').toLowerCase();
-      return name.contains(query) ||
-          city.contains(query) ||
-          type.contains(query);
-    }).toList();
-
-    setState(() {
-      _filteredProviders = filtered;
+      _zoomToFilteredMarkers();
     });
-
-    _zoomToFilteredMarkers();
   }
 
   void _zoomToFilteredMarkers() {
