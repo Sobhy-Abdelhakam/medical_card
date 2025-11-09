@@ -182,6 +182,8 @@ class _MapDataState extends State<MapData> {
   void _onSearchChanged() {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(seconds: 2), () {
+      if (!mounted) return; // Safety check
+
       final query = _searchController.text.toLowerCase().trim();
 
       // Reset if query is empty
@@ -217,7 +219,7 @@ class _MapDataState extends State<MapData> {
   }
 
   void _zoomToFilteredMarkers() {
-    if (_filteredProviders.isEmpty || _mapController == null) return;
+    if (!mounted || _filteredProviders.isEmpty || _mapController == null) return;
 
     if (_filteredProviders.length == 1) {
       final provider = _filteredProviders.first;
@@ -247,9 +249,9 @@ class _MapDataState extends State<MapData> {
       northeast: LatLng(maxLat, maxLng),
     );
 
-    // Add a delay to ensure the map has rendered before animating
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds, 50.w));
+      if (!mounted) return; // Safety check
+      _mapController?.animateCamera(CameraUpdate.newLatLngBounds(bounds, 50.w));
     });
   }
 
@@ -281,6 +283,7 @@ class _MapDataState extends State<MapData> {
 
   // Animates map to a specific location
   void _animateToLocation(LatLng position, {double zoom = 14.0}) {
+    if (!mounted) return; // Safety check
     _mapController?.animateCamera(CameraUpdate.newLatLngZoom(position, zoom));
   }
 
@@ -288,6 +291,8 @@ class _MapDataState extends State<MapData> {
   Future<void> _goToMyLocation() async {
     try {
       final position = await _LocationService.getCurrentLocation(context);
+      if (!mounted) return; // Safety check
+
       if (position != null) {
         setState(() {
           _currentLocation = position;
