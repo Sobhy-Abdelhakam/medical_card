@@ -6,6 +6,11 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'card_data.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
+// import 'package:flutter/material.dart';
+// import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+// import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:flutter/services.dart';
+
 class MainApp extends StatefulWidget {
   const MainApp({super.key});
 
@@ -14,82 +19,101 @@ class MainApp extends StatefulWidget {
 }
 
 class _MainAppState extends State<MainApp> {
-  int _selectedIndex = 0;
-  static final List<Widget> _widgetOptions = <Widget>[
-    const MapData(),
-    const HomeScreen(),
-    const PartnersScreen(),
-    const Profile(),
+  int _selectedIndex = 1; // Start on Home
+  final List<Widget> _widgetOptions = const [
+    MapData(),
+    HomeScreen(),
+    PartnersScreen(),
+    Profile(),
   ];
 
   void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
+    HapticFeedback.lightImpact(); // ✅ adds nice touch feedback
+    setState(() => _selectedIndex = index);
   }
 
   @override
   Widget build(BuildContext context) {
     final bool isLandscape =
         MediaQuery.of(context).orientation == Orientation.landscape;
-    final double iconSize =
-        isLandscape ? 14.w : 20.w; // Smaller icons for 4 items
-    final double fontSize =
-        isLandscape ? 9.sp : 11.sp; // Smaller font for 4 items
+    final double iconSize = isLandscape ? 18.w : 22.w;
+    final double fontSize = isLandscape ? 10.sp : 12.sp;
 
     return Scaffold(
+      extendBody: true,
       appBar: isLandscape
           ? null
           : AppBar(
-              // Hide AppBar in landscape mode
+              backgroundColor: Theme.of(context).colorScheme.primary,
+              elevation: 3,
+              shape: const RoundedRectangleBorder(
+                borderRadius: BorderRadius.vertical(
+                  bottom: Radius.circular(16),
+                ),
+              ),
               title: const Text(
                 'Euro Medical Card',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.3,
+                ),
               ),
+              centerTitle: true,
+              foregroundColor: Theme.of(context).colorScheme.onPrimary,
             ),
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: _widgetOptions,
+      body: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 300),
+        child: IndexedStack(
+          index: _selectedIndex,
+          children: _widgetOptions,
+        ),
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        items: [
-          BottomNavigationBarItem(
-            icon: FaIcon(
-              FontAwesomeIcons.mapLocation,
-              size: iconSize,
+      bottomNavigationBar: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black12,
+              blurRadius: 8,
+              offset: const Offset(0, 3),
             ),
-            label: 'الخريطة',
-          ),
-          BottomNavigationBarItem(
-            icon: FaIcon(
-              FontAwesomeIcons.stethoscope,
-              size: iconSize,
-            ),
-            label: 'الشبكة الطبية',
-          ),
-          BottomNavigationBarItem(
-            icon: FaIcon(
-              FontAwesomeIcons.handshake,
-              size: iconSize,
-            ),
-            label: 'كبار الشركاء',
-          ),
-          BottomNavigationBarItem(
-            icon: FaIcon(
-              FontAwesomeIcons.comments,
-              size: iconSize,
-            ),
-            label: 'التواصل',
-          ),
-        ],
-        currentIndex: _selectedIndex,
-        selectedLabelStyle: TextStyle(
-          fontSize: fontSize,
+          ],
         ),
-        unselectedLabelStyle: TextStyle(
-          fontSize: fontSize,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: BottomNavigationBar(
+            type: BottomNavigationBarType.fixed,
+            backgroundColor: Colors.white,
+            currentIndex: _selectedIndex,
+            selectedItemColor: Theme.of(context).colorScheme.primary,
+            unselectedItemColor: Colors.grey,
+            selectedFontSize: fontSize,
+            unselectedFontSize: fontSize,
+            showUnselectedLabels: true,
+            iconSize: iconSize,
+            onTap: _onItemTapped,
+            items: const [
+              BottomNavigationBarItem(
+                icon: FaIcon(FontAwesomeIcons.mapLocation),
+                label: 'الخريطة',
+              ),
+              BottomNavigationBarItem(
+                icon: FaIcon(FontAwesomeIcons.stethoscope),
+                label: 'الشبكة الطبية',
+              ),
+              BottomNavigationBarItem(
+                icon: FaIcon(FontAwesomeIcons.handshake),
+                label: 'كبار الشركاء',
+              ),
+              BottomNavigationBarItem(
+                icon: FaIcon(FontAwesomeIcons.comments),
+                label: 'التواصل',
+              ),
+            ],
+          ),
         ),
-        type: BottomNavigationBarType.fixed,
-        onTap: _onItemTapped,
       ),
     );
   }

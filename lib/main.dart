@@ -16,7 +16,11 @@ class MyApp extends StatelessWidget {
       builder: (context, child) {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
-          theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.red)),
+          theme: ThemeData(
+            useMaterial3: true,
+            colorScheme: ColorScheme.fromSwatch(primarySwatch: Colors.red)
+                .copyWith(primary: Color(0xfff70403)),
+          ),
           home: const SplashScreen(),
           localeResolutionCallback: (locale, supportedLocales) {
             for (var supportedLocale in supportedLocales) {
