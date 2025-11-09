@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:euro_medical_card/screen/data.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:http/http.dart' as http;
@@ -147,8 +148,22 @@ class _PartnersScreenState extends State<PartnersScreen> {
             return _TopProviderCard(
               provider: topProvider,
               onTap: () {
-                // No action on tap for now, as search/details are removed
-                // If a detail screen for TopProvider is needed, it would be navigated here.
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => ShowData(
+                      item: '', // item is not needed when searchOnly is true
+                      searchOnly: true,
+                    ),
+                    settings: RouteSettings(
+                      arguments: {
+                        'search': topProvider.nameArabic,
+                        'searchOnly': true,
+                        'type': topProvider.typeArabic,
+                      },
+                    ),
+                  ),
+                );
               },
             );
           },

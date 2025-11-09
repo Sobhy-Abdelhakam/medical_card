@@ -8,7 +8,8 @@ import '../model/dataModel.dart';
 
 class ShowData extends StatefulWidget {
   final String item;
-  const ShowData({required this.item, super.key});
+  final bool searchOnly;
+  const ShowData({required this.item, this.searchOnly = false, super.key});
 
   @override
   State<ShowData> createState() => _ShowDataState();
@@ -26,12 +27,33 @@ class _ShowDataState extends State<ShowData> {
   // --- Filtering and Searching ---
   String? _selectedCity;
   final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
   Timer? _debounce;
 
   @override
   void initState() {
     super.initState();
-    _fetchData();
+    // This logic is restored from the old version to handle arguments correctly
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final args = ModalRoute.of(context)?.settings.arguments;
+      bool searchOnlyArg = widget.searchOnly;
+      String? typeArg;
+
+      if (args is Map) {
+        if (args['search'] != null && args['search'].toString().isNotEmpty) {
+          setState(() {
+            _searchQuery = args['search'];
+            _searchController.text = _searchQuery;
+          });
+        }
+        if (args['searchOnly'] == true) searchOnlyArg = true;
+        if (args['type'] != null) typeArg = args['type'];
+      }
+
+      _fetchData(searchOnly: searchOnlyArg, type: typeArg);
+    });
+
     _searchController.addListener(_onSearchChanged);
   }
 
@@ -42,43 +64,63 @@ class _ShowDataState extends State<ShowData> {
     super.dispose();
   }
 
-  // --- Data Fetching ---
-  Future<void> _fetchData() async {
+  // --- Data Fetching (Restored Logic) ---
+  Future<void> _fetchData({bool? searchOnly, String? type}) async {
+    if (!mounted) return;
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
-      final url =
-          "https://providers.euro-assist.com/api/arabic-providers?type=${Uri.encodeComponent(widget.item)}";
+      String url = "https://providers.euro-assist.com/api/arabic-providers";
+      final currentSearchQuery = _searchController.text.trim();
+
+      if (searchOnly ?? widget.searchOnly) {
+        if (currentSearchQuery.isNotEmpty) {
+          url += "?search=${Uri.encodeComponent(currentSearchQuery)}";
+        }
+      } else {
+        bool hasQuery = false;
+        final typeToFetch = type ?? widget.item;
+        if (typeToFetch.isNotEmpty) {
+          url += "?type=${Uri.encodeComponent(typeToFetch)}";
+          hasQuery = true;
+        }
+        if (currentSearchQuery.isNotEmpty) {
+          url +=
+              "${hasQuery ? '&' : '?'}search=${Uri.encodeComponent(currentSearchQuery)}";
+        }
+      }
+
       final response =
           await http.get(Uri.parse(url)).timeout(const Duration(seconds: 15));
+      if (!mounted) return;
 
       if (response.statusCode == 200) {
         final List<dynamic> dataList = json.decode(response.body);
         final Set<String> citySet = {};
         final providersList = dataList.map((item) {
           final provider = ServiceProvider.fromJson(item);
-          if (provider.city.isNotEmpty) {
-            citySet.add(provider.city);
-          }
+          if (provider.city.isNotEmpty) citySet.add(provider.city);
           return provider;
         }).toList();
 
         setState(() {
           _allServiceProviders = providersList;
           _cities = citySet.toList()..sort();
-          _applyFilters(); // Apply initial filters (which will be none)
+          _applyFilters();
         });
       } else {
         throw Exception('خطأ في تحميل البيانات: ${response.statusCode}');
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _errorMessage = "فشل تحميل البيانات، تأكد من اتصال الإنترنت.";
       });
     } finally {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
@@ -88,20 +130,22 @@ class _ShowDataState extends State<ShowData> {
   // --- Filtering Logic ---
   void _onSearchChanged() {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
-    _debounce = Timer(const Duration(milliseconds: 400), () {
-      _applyFilters();
+    _debounce = Timer(const Duration(milliseconds: 500), () {
+      // When search text changes, we need to re-fetch from the API
+      // because the API handles the search, not the client.
+      _fetchData();
     });
   }
 
   void _applyFilters() {
+    // This method now only applies client-side filters, like city.
+    // The main search is handled by the API via _fetchData.
+    if (!mounted) return;
     setState(() {
-      final searchQuery = _searchController.text.toLowerCase();
       _filteredProviders = _allServiceProviders.where((provider) {
         final matchesCity =
             _selectedCity == null || provider.city == _selectedCity;
-        final matchesSearch = searchQuery.isEmpty ||
-            provider.name.toLowerCase().contains(searchQuery);
-        return matchesCity && matchesSearch;
+        return matchesCity;
       }).toList();
     });
   }
