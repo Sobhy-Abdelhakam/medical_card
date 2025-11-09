@@ -19,7 +19,7 @@ class MainApp extends StatefulWidget {
 }
 
 class _MainAppState extends State<MainApp> {
-  int _selectedIndex = 1; // Start on Home
+  int _selectedIndex = 0; // Start on Home
   final List<Widget> _widgetOptions = const [
     MapData(),
     HomeScreen(),
@@ -51,12 +51,26 @@ class _MainAppState extends State<MainApp> {
                   bottom: Radius.circular(16),
                 ),
               ),
-              title: const Text(
-                'Euro Medical Card',
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.3,
-                ),
+              title: Row(
+                mainAxisSize: MainAxisSize.min, // Keeps it centered and tight
+                children: [
+                  Image.asset(
+                    'assets/icons/logo.png',
+                    color: Colors.white,
+                    width: 35,
+                    height: 35,
+                  ),
+                  SizedBox(width: 3),
+                  Text(
+                    'Euro Medical Card',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 20,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ],
               ),
               centerTitle: true,
               foregroundColor: Theme.of(context).colorScheme.onPrimary,

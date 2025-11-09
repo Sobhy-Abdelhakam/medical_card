@@ -10,6 +10,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'dart:ui' as ui;
 
+enum _MapStatus { loading, success, failure }
+
 class MapData extends StatefulWidget {
   const MapData({super.key});
 
@@ -18,29 +20,34 @@ class MapData extends StatefulWidget {
 }
 
 class _MapDataState extends State<MapData> {
-  LatLng? currentLocation;
-  final String url = "https://providers.euro-assist.com/api/arabic-providers";
+  // URL for providers API
+  static const String _providersUrl =
+      "https://providers.euro-assist.com/api/arabic-providers";
+
+  // State variables
+  _MapStatus _status = _MapStatus.loading;
+  String? _errorMessage;
+  LatLng? _currentLocation;
+  List<Map<String, dynamic>> _allProviders = [];
+  List<Map<String, dynamic>> _filteredProviders = [];
+  dynamic _selectedMarkerId;
+
+  // Controllers and Subscriptions
   GoogleMapController? _mapController;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
+  final TextEditingController _searchController = TextEditingController();
+  String? _mapStyle;
 
-  bool isOffline = false;
-  bool showLegend = false;
-  bool dataLoading = true;
-  bool locationLoaded = false;
-  bool providersLoaded = false;
-  bool locationError = false;
-  String? locationErrorMessage;
-  bool providersError = false;
-  String? providersErrorMessage;
+  // UI flags
+  bool _isOffline = false;
+  bool _showLegend = false;
 
-  bool _mapCreated = false;
-  bool testMode = false; // Enable test mode for sample data
+  // Caches for custom markers
+  final Map<String, BitmapDescriptor> _typeBitmapCache = {};
+  final Map<String, BitmapDescriptor> _typeBitmapCacheSelected = {};
 
-  dynamic _selectedMarkerId;
-  List<Map<String, dynamic>> _providers = [];
-
-  // Sample data for testing when API fails
-  final List<Map<String, dynamic>> sampleData = [
+  // Sample data for testing or offline mode
+  final List<Map<String, dynamic>> _sampleData = [
     {
       'id': 1,
       'name': 'صيدلية النور',
@@ -63,21 +70,10 @@ class _MapDataState extends State<MapData> {
       'phone': '0123456790',
       'discount_pct': '20%',
     },
-    {
-      'id': 3,
-      'name': 'معمل التحاليل الطبية',
-      'type': 'معمل تحاليل',
-      'latitude': 30.0344,
-      'longitude': 31.2257,
-      'address': 'شارع المعمل، القاهرة',
-      'city': 'القاهرة',
-      'phone': '0123456791',
-      'discount_pct': '10%',
-    },
   ];
 
-  // Map provider types to IconData and color
-  final Map<String, Map<String, dynamic>> typeIconMap = {
+  // Map provider types to icons and colors for the legend and markers
+  final Map<String, Map<String, dynamic>> _typeIconMap = {
     'صيدلية': {'icon': Icons.local_pharmacy, 'color': Colors.green},
     'مستشفى': {'icon': Icons.local_hospital, 'color': Colors.red},
     'معمل تحاليل': {'icon': Icons.science, 'color': Colors.blue},
@@ -91,269 +87,212 @@ class _MapDataState extends State<MapData> {
     'بصريات': {'icon': Icons.visibility, 'color': Colors.brown},
   };
 
-  Map<String, BitmapDescriptor> typeBitmapCache = {};
-  Map<String, BitmapDescriptor> typeBitmapCacheSelected = {};
-
   @override
   void initState() {
     super.initState();
-    _initializeMap();
+    _initialize();
+    _searchController.addListener(_onSearchChanged);
   }
 
-  void _initializeMap() async {
-    try {
-      await _generateTypeIcons();
-      _loadData();
-      _setupConnectivityListener();
-    } catch (e) {
-      debugPrint('Error initializing map: $e');
-      _loadData();
-    }
+  @override
+  void dispose() {
+    _connectivitySubscription?.cancel();
+    _mapController?.dispose();
+    _searchController.dispose();
+    super.dispose();
   }
 
+  // Initializes connectivity listener, loads map style and all required data
+  Future<void> _initialize() async {
+    _setupConnectivityListener();
+    await _loadMapStyle();
+    await _generateTypeIcons();
+    _loadData();
+  }
+
+  // Sets up a listener to react to connectivity changes
   void _setupConnectivityListener() {
     _connectivitySubscription = Connectivity()
         .onConnectivityChanged
         .listen((List<ConnectivityResult> result) {
       final isConnected =
           result.isNotEmpty && result.first != ConnectivityResult.none;
-      if (isConnected) {
-        if (isOffline) {
-          setState(() {
-            isOffline = false;
-          });
-          _loadData();
-        }
-      } else {
-        setState(() {
-          isOffline = true;
-        });
-        _showRetryDialog(
-            "لا يوجد اتصال بالإنترنت. يرجى تشغيله لإعادة تحميل البيانات.");
-      }
-    });
-  }
-
-  void _loadData() {
-    setState(() {
-      dataLoading = true;
-      locationLoaded = false;
-      providersLoaded = false;
-      locationError = false;
-      providersError = false;
-      locationErrorMessage = null;
-      providersErrorMessage = null;
-      currentLocation = null;
-      _providers = [];
-      _selectedMarkerId = null;
-    });
-
-    Future.wait([
-      getCurrentLocation(),
-      fetchProviderData(),
-    ]).whenComplete(() {
       if (mounted) {
         setState(() {
-          dataLoading = false;
-          locationLoaded = true;
-          providersLoaded = true;
+          _isOffline = !isConnected;
         });
+        if (isConnected) {
+          _loadData(); // Reload data when connection is back
+        } else {
+          _showRetryDialog("لا يوجد اتصال بالإنترنت. يرجى التحقق من اتصالك.");
+        }
       }
     });
   }
 
+  // Loads the custom map style from assets
+  Future<void> _loadMapStyle() async {
+    try {
+      _mapStyle =
+          await rootBundle.loadString('assets/map_styles/map_style.json');
+    } catch (e) {
+      debugPrint('Error loading map style: $e');
+    }
+  }
+
+  // Main data loading orchestration
+  Future<void> _loadData() async {
+    if (!mounted) return;
+    setState(() {
+      _status = _MapStatus.loading;
+    });
+
+    try {
+      // Fetch location and providers in parallel
+      final results = await Future.wait([
+        _LocationService.getCurrentLocation(context),
+        _ApiHelper.fetchProviders(_providersUrl, _sampleData),
+      ]);
+
+      if (mounted) {
+        setState(() {
+          _currentLocation = results[0] as LatLng?;
+          _allProviders = results[1] as List<Map<String, dynamic>>;
+          _filteredProviders = _allProviders;
+          _status = _MapStatus.success;
+        });
+        if (_currentLocation != null) {
+          _animateToLocation(_currentLocation!, zoom: 14.0);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _status = _MapStatus.failure;
+          _errorMessage = e.toString();
+        });
+      }
+    }
+  }
+
+  // --- Search Logic ---
+  void _onSearchChanged() {
+    final query = _searchController.text.toLowerCase();
+    if (query.isEmpty) {
+      setState(() {
+        _filteredProviders = _allProviders;
+      });
+      return;
+    }
+
+    final filtered = _allProviders.where((provider) {
+      final name = (provider['name'] ?? '').toLowerCase();
+      final city = (provider['city'] ?? '').toLowerCase();
+      final type = (provider['type'] ?? '').toLowerCase();
+      return name.contains(query) ||
+          city.contains(query) ||
+          type.contains(query);
+    }).toList();
+
+    setState(() {
+      _filteredProviders = filtered;
+    });
+
+    _zoomToFilteredMarkers();
+  }
+
+  void _zoomToFilteredMarkers() {
+    if (_filteredProviders.isEmpty || _mapController == null) return;
+
+    if (_filteredProviders.length == 1) {
+      final provider = _filteredProviders.first;
+      final lat = (provider['latitude'] as num?)?.toDouble();
+      final lng = (provider['longitude'] as num?)?.toDouble();
+      if (lat != null && lng != null) {
+        _animateToLocation(LatLng(lat, lng), zoom: 15.0);
+      }
+      return;
+    }
+
+    double minLat = 90.0, maxLat = -90.0, minLng = 180.0, maxLng = -180.0;
+
+    for (final provider in _filteredProviders) {
+      final lat = (provider['latitude'] as num?)?.toDouble();
+      final lng = (provider['longitude'] as num?)?.toDouble();
+      if (lat != null && lng != null) {
+        minLat = lat < minLat ? lat : minLat;
+        maxLat = lat > maxLat ? lat : maxLat;
+        minLng = lng < minLng ? lng : minLng;
+        maxLng = lng > maxLng ? lng : maxLng;
+      }
+    }
+
+    final bounds = LatLngBounds(
+      southwest: LatLng(minLat, minLng),
+      northeast: LatLng(maxLat, maxLng),
+    );
+
+    // Add a delay to ensure the map has rendered before animating
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds, 50.w));
+    });
+  }
+
+  // Generates custom bitmap icons for each provider type
   Future<void> _generateTypeIcons() async {
     try {
-      for (final entry in typeIconMap.entries) {
+      for (final entry in _typeIconMap.entries) {
         final iconData = entry.value['icon'] as IconData;
         final color = entry.value['color'] as Color;
-        typeBitmapCache[entry.key] =
-            await bitmapDescriptorFromIcon(iconData, color, size: 120);
-        typeBitmapCacheSelected[entry.key] = await bitmapDescriptorFromIcon(
+        _typeBitmapCache[entry.key] =
+            await _BitmapGenerator.fromIcon(iconData, color, size: 120);
+        _typeBitmapCacheSelected[entry.key] = await _BitmapGenerator.fromIcon(
             iconData, color,
             size: 180, isSelected: true);
       }
-      typeBitmapCache['default'] =
-          await bitmapDescriptorFromIcon(Icons.location_on, Colors.blue, size: 120);
-      typeBitmapCacheSelected['default'] = await bitmapDescriptorFromIcon(
+      // Default icons
+      _typeBitmapCache['default'] = await _BitmapGenerator.fromIcon(
+          Icons.location_on, Colors.blue,
+          size: 120);
+      _typeBitmapCacheSelected['default'] = await _BitmapGenerator.fromIcon(
           Icons.location_on, Colors.blue,
           size: 180, isSelected: true);
-      debugPrint('Generated ${typeBitmapCache.length} icons successfully');
     } catch (e) {
       debugPrint('Error generating icons: $e');
     }
   }
 
-  Future<BitmapDescriptor> bitmapDescriptorFromIcon(
-      IconData iconData, Color color,
-      {int size = 120, bool isSelected = false}) async {
-    try {
-      final ui.PictureRecorder pictureRecorder = ui.PictureRecorder();
-      final Canvas canvas = Canvas(pictureRecorder);
-      final double iconSize = size.toDouble();
-
-      if (isSelected) {
-        final Paint shadowPaint = Paint()
-          ..color = Colors.black.withOpacity(0.3)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10);
-        canvas.drawCircle(
-            Offset(iconSize / 2, iconSize / 2), iconSize * 0.4, shadowPaint);
-      }
-
-      final Paint backgroundPaint = Paint()
-        ..color = Colors.white
-        ..style = PaintingStyle.fill;
-      canvas.drawCircle(
-          Offset(iconSize / 2, iconSize / 2), iconSize * 0.4, backgroundPaint);
-
-      final Paint borderPaint = Paint()
-        ..color = color
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = isSelected ? 8.0 : 4.0;
-      canvas.drawCircle(
-          Offset(iconSize / 2, iconSize / 2), iconSize * 0.4, borderPaint);
-
-      final TextPainter textPainter =
-          TextPainter(textDirection: TextDirection.ltr);
-      textPainter.text = TextSpan(
-        text: String.fromCharCode(iconData.codePoint),
-        style: TextStyle(
-          fontSize: iconSize * 0.6,
-          fontFamily: iconData.fontFamily,
-          package: iconData.fontPackage,
-          color: color,
-        ),
-      );
-      textPainter.layout();
-      textPainter.paint(
-        canvas,
-        Offset((iconSize - textPainter.width) / 2,
-            (iconSize - textPainter.height) / 2),
-      );
-
-      final img = await pictureRecorder.endRecording().toImage(size, size);
-      final data = await img.toByteData(format: ui.ImageByteFormat.png);
-      return BitmapDescriptor.fromBytes(data!.buffer.asUint8List());
-    } catch (e) {
-      debugPrint('Error creating bitmap descriptor: $e');
-      return BitmapDescriptor.defaultMarker;
-    }
-  }
-
-  Future<void> fetchProviderData() async {
-    try {
-      List<dynamic> data;
-      if (testMode) {
-        data = sampleData;
-      } else {
-        final response = await http
-            .get(Uri.parse(url))
-            .timeout(const Duration(seconds: 30));
-        if (response.statusCode == 200) {
-          data = jsonDecode(utf8.decode(response.bodyBytes));
-        } else {
-          throw 'API Error: ${response.statusCode}';
-        }
-      }
-      if (mounted) {
-        setState(() {
-          _providers = List<Map<String, dynamic>>.from(data);
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          providersError = true;
-          providersErrorMessage = "فشل تحميل بيانات المزودين. عرض بيانات تجريبية.";
-          _providers = sampleData;
-        });
-      }
-      debugPrint('Network error: $e');
-    }
-  }
-
-  Future<void> getCurrentLocation() async {
-    try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        await Geolocator.openLocationSettings();
-        throw "خدمة الموقع غير مفعلة. يرجى تفعيلها من الإعدادات.";
-      }
-
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          throw "تم رفض إذن الموقع. يرجى السماح بالوصول إلى الموقع.";
-        }
-      }
-      if (permission == LocationPermission.deniedForever) {
-        await Geolocator.openAppSettings();
-        throw "تم رفض إذن الموقع دائمًا. يرجى السماح به يدويًا من الإعدادات.";
-      }
-
-      Position position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high);
-      if (mounted) {
-        setState(() {
-          currentLocation = LatLng(position.latitude, position.longitude);
-        });
-        _animateToLocation(currentLocation!, zoom: 14.0);
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          locationError = true;
-          locationErrorMessage = e is String ? e : "تعذر تحديد الموقع.";
-        });
-      }
-      debugPrint('Location error: $e');
-    }
-  }
-
+  // Animates map to a specific location
   void _animateToLocation(LatLng position, {double zoom = 14.0}) {
-    if (_mapCreated && _mapController != null) {
-      _mapController!
-          .animateCamera(CameraUpdate.newLatLngZoom(position, zoom));
-    }
+    _mapController?.animateCamera(CameraUpdate.newLatLngZoom(position, zoom));
   }
 
-  Future<void> _showProviderDetails(dynamic id) async {
-    try {
-      final response = await http.get(Uri.parse('$url/$id'));
-      if (response.statusCode == 200) {
-        final provider = jsonDecode(utf8.decode(response.bodyBytes));
-        if (mounted) {
-          showModalBottomSheet(
-            context: context,
-            isScrollControlled: true,
-            backgroundColor: Colors.transparent,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.vertical(top: Radius.circular(20.r)),
-            ),
-            builder: (context) =>
-                _ProviderDetailsSheet(provider: provider),
-          ).whenComplete(() {
-            if (mounted) {
-              setState(() {
-                _selectedMarkerId = null;
-              });
-            }
-          });
-        }
-      } else {
-        _showErrorDialog("فشل في جلب تفاصيل المزود.");
+  // Shows provider details in a bottom sheet
+  void _showProviderDetails(Map<String, dynamic> provider) {
+    // This fetches full details, but for now we use the data we have
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20.r)),
+      ),
+      builder: (context) => _ProviderDetailsSheet(provider: provider),
+    ).whenComplete(() {
+      if (mounted) {
+        setState(() {
+          _selectedMarkerId = null;
+        });
       }
-    } catch (e) {
-      _showErrorDialog("فشل في جلب تفاصيل المزود.");
-    }
+    });
   }
 
+  // Dialogs for retrying actions or showing errors
   void _showRetryDialog(String message) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("خطأ", textAlign: TextAlign.right),
+        title: const Text("تنبيه", textAlign: TextAlign.right),
         content: Text(message, textAlign: TextAlign.right),
         actions: [
           TextButton(
@@ -363,18 +302,6 @@ class _MapDataState extends State<MapData> {
             },
             child: const Text("إعادة المحاولة"),
           ),
-        ],
-      ),
-    );
-  }
-
-  void _showErrorDialog(String message) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("خطأ", textAlign: TextAlign.right),
-        content: Text(message, textAlign: TextAlign.right),
-        actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: const Text("موافق"),
@@ -385,149 +312,177 @@ class _MapDataState extends State<MapData> {
   }
 
   @override
-  void dispose() {
-    _connectivitySubscription?.cancel();
-    _mapController?.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // resizeToAvoidBottomInset: false, // Prevents keyboard from pushing UI up
       floatingActionButton: Padding(
-        padding: EdgeInsets.only(bottom: 80.h),
+        padding: EdgeInsets.only(bottom: 90.h, right: 4.w),
         child: FloatingActionButton(
           heroTag: "legend",
           backgroundColor: Theme.of(context).colorScheme.primary,
-          onPressed: () => setState(() => showLegend = !showLegend),
-          child: Icon(showLegend ? Icons.close : Icons.info_outline,
+          onPressed: () => setState(() => _showLegend = !_showLegend),
+          child: Icon(_showLegend ? Icons.close : Icons.info_outline,
               color: Colors.white),
         ),
       ),
       body: Stack(
         children: [
           _buildMapContent(),
+          _buildSearchBar(),
+          if (_isOffline) _buildOfflineBanner(),
           _buildLegend(),
         ],
       ),
     );
   }
 
+  // Builds the main content based on the current status
   Widget _buildMapContent() {
-    if (dataLoading) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(
-                color: Theme.of(context).colorScheme.primary),
-            SizedBox(height: 20.h),
-            const Text('جاري تحميل الخريطة والبيانات...',
-                style: TextStyle(fontSize: 16)),
+    switch (_status) {
+      case _MapStatus.loading:
+        return Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(
+                  color: Theme.of(context).colorScheme.primary),
+              SizedBox(height: 20.h),
+              const Text('جاري تحميل الخريطة والبيانات...',
+                  style: TextStyle(fontSize: 16)),
+            ],
+          ),
+        );
+      case _MapStatus.failure:
+        return Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error, color: Colors.red, size: 48),
+              SizedBox(height: 16.h),
+              Text(_errorMessage ?? "حدث خطأ غير متوقع.",
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 16)),
+              SizedBox(height: 16.h),
+              ElevatedButton(
+                onPressed: _loadData,
+                child: const Text("إعادة المحاولة"),
+              ),
+            ],
+          ),
+        );
+      case _MapStatus.success:
+        return GoogleMap(
+          mapType: MapType.normal,
+          initialCameraPosition: CameraPosition(
+            target: _currentLocation ?? const LatLng(30.0444, 31.2357), // Cairo
+            zoom: 12.0,
+          ),
+          markers: _buildMarkersSet(),
+          onMapCreated: (controller) {
+            _mapController = controller;
+            _mapController?.setMapStyle(_mapStyle);
+            if (_currentLocation != null) {
+              _animateToLocation(_currentLocation!, zoom: 14.0);
+            }
+          },
+          onTap: (_) {
+            if (_selectedMarkerId != null) {
+              setState(() {
+                _selectedMarkerId = null;
+              });
+            }
+          },
+          myLocationEnabled: true,
+          myLocationButtonEnabled: true,
+          zoomControlsEnabled: true,
+          compassEnabled: true,
+          mapToolbarEnabled: true,
+        );
+    }
+  }
+
+  // Builds the search bar widget
+  Widget _buildSearchBar() {
+    return Positioned(
+      top: 50.h,
+      left: 15.w,
+      right: 15.w,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(30.r),
+          boxShadow: const [
+            BoxShadow(
+                color: Colors.black26, blurRadius: 10, offset: Offset(0, 2))
           ],
         ),
-      );
-    }
-
-    if (locationError && _providers.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error, color: Colors.red, size: 48),
-            SizedBox(height: 16.h),
-            Text(locationErrorMessage ?? "حدث خطأ غير متوقع.",
-                textAlign: TextAlign.center, style: const TextStyle(fontSize: 16)),
-            SizedBox(height: 16.h),
-            ElevatedButton(
-              onPressed: _loadData,
-              child: const Text("إعادة المحاولة"),
-            ),
-          ],
+        child: TextField(
+          controller: _searchController,
+          textAlign: TextAlign.right,
+          decoration: InputDecoration(
+            hintText: 'ابحث عن مستشفى، صيدلية، مدينة...',
+            hintStyle: TextStyle(color: Colors.grey.shade500),
+            prefixIcon:
+                Icon(Icons.search, color: Theme.of(context).primaryColor),
+            suffixIcon: _searchController.text.isNotEmpty
+                ? IconButton(
+                    icon: const Icon(Icons.clear),
+                    onPressed: () {
+                      _searchController.clear();
+                      FocusScope.of(context).unfocus(); // Hide keyboard
+                    },
+                  )
+                : null,
+            border: InputBorder.none,
+            contentPadding:
+                EdgeInsets.symmetric(horizontal: 20.w, vertical: 14.h),
+          ),
         ),
-      );
-    }
-
-    return GoogleMap(
-      mapType: MapType.normal,
-      initialCameraPosition: CameraPosition(
-        target: currentLocation ?? const LatLng(30.0444, 31.2357), // Cairo
-        zoom: 12.0,
       ),
-      markers: _buildMarkersSet(),
-      onMapCreated: (controller) {
-        _mapController = controller;
-        _mapCreated = true;
-        if (currentLocation != null) {
-          _animateToLocation(currentLocation!, zoom: 14.0);
-        }
-      },
-      onTap: (_) {
-        if (_selectedMarkerId != null) {
-          setState(() {
-            _selectedMarkerId = null;
-          });
-        }
-      },
-      myLocationEnabled: true,
-      myLocationButtonEnabled: true,
-      zoomControlsEnabled: true,
-      compassEnabled: true,
-      mapToolbarEnabled: true,
     );
   }
 
+  // Creates the set of markers for the map
   Set<Marker> _buildMarkersSet() {
     final markers = <Marker>{};
-
-    if (currentLocation != null) {
-      markers.add(
-        Marker(
-          markerId: const MarkerId('current_location'),
-          position: currentLocation!,
-          icon:
-              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
-          infoWindow: const InfoWindow(title: 'موقعك الحالي'),
-          anchor: const Offset(0.5, 1.0),
-        ),
-      );
-    }
-
-    for (var item in _providers) {
+    for (var item in _filteredProviders) {
       try {
-        if (item['latitude'] != null && item['longitude'] != null) {
-          final lat = (item['latitude'] as num).toDouble();
-          final lng = (item['longitude'] as num).toDouble();
+        final lat = (item['latitude'] as num?)?.toDouble();
+        final lng = (item['longitude'] as num?)?.toDouble();
 
-          if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
-            final type = item['type'] ?? '';
-            final isSelected = item['id'] == _selectedMarkerId;
-            final icon = isSelected
-                ? (typeBitmapCacheSelected[type] ??
-                    typeBitmapCacheSelected['default']!)
-                : (typeBitmapCache[type] ?? typeBitmapCache['default']!);
+        if (lat != null &&
+            lng != null &&
+            lat >= -90 &&
+            lat <= 90 &&
+            lng >= -180 &&
+            lng <= 180) {
+          final type = item['type'] ?? '';
+          final isSelected = item['id'] == _selectedMarkerId;
+          final icon = isSelected
+              ? (_typeBitmapCacheSelected[type] ??
+                  _typeBitmapCacheSelected['default']!)
+              : (_typeBitmapCache[type] ?? _typeBitmapCache['default']!);
 
-            markers.add(
-              Marker(
-                markerId: MarkerId(item['id'].toString()),
-                position: LatLng(lat, lng),
-                icon: icon,
-                zIndex: isSelected ? 1.0 : 0.0,
-                anchor: const Offset(0.5, 1.0),
-                infoWindow: InfoWindow(
-                  title: item['name'] ?? 'Unknown',
-                  snippet: item['type'] ?? '',
-                ),
-                onTap: () {
-                  _animateToLocation(LatLng(lat, lng), zoom: 15.0);
-                  setState(() {
-                    _selectedMarkerId = item['id'];
-                  });
-                  _showProviderDetails(item['id']);
-                },
+          markers.add(
+            Marker(
+              markerId: MarkerId(item['id'].toString()),
+              position: LatLng(lat, lng),
+              icon: icon,
+              zIndex: isSelected ? 1.0 : 0.0,
+              anchor: const Offset(0.5, 1.0),
+              infoWindow: InfoWindow(
+                title: item['name'] ?? 'Unknown',
+                snippet: item['type'] ?? '',
               ),
-            );
-          }
+              onTap: () {
+                _animateToLocation(LatLng(lat, lng), zoom: 15.0);
+                setState(() {
+                  _selectedMarkerId = item['id'];
+                });
+                _showProviderDetails(item);
+              },
+            ),
+          );
         }
       } catch (e) {
         debugPrint('Error creating marker for item ${item['id']}: $e');
@@ -536,23 +491,204 @@ class _MapDataState extends State<MapData> {
     return markers;
   }
 
+  // Builds the legend widget
   Widget _buildLegend() {
     return IgnorePointer(
-      ignoring: !showLegend,
+      ignoring: !_showLegend,
       child: AnimatedOpacity(
-        opacity: showLegend ? 1.0 : 0.0,
+        opacity: _showLegend ? 1.0 : 0.0,
         duration: const Duration(milliseconds: 300),
-        child: showLegend
+        child: _showLegend
             ? _LegendWidget(
-                typeIconMap: typeIconMap,
-                onClose: () => setState(() => showLegend = false),
+                typeIconMap: _typeIconMap,
+                onClose: () => setState(() => _showLegend = false),
               )
             : const SizedBox.shrink(),
       ),
     );
   }
+
+  // Builds the offline banner
+  Widget _buildOfflineBanner() {
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      child: Container(
+        color: Colors.red,
+        padding: EdgeInsets.symmetric(vertical: 4.h, horizontal: 12.w),
+        child: const Text(
+          'أنت غير متصل بالإنترنت',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.white),
+        ),
+      ),
+    );
+  }
 }
 
+// --- Helper Classes ---
+
+// Handles all location-related logic
+class _LocationService {
+  static Future<LatLng?> getCurrentLocation(BuildContext context) async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      await _showLocationServiceDialog(context);
+      throw "خدمة الموقع غير مفعلة.";
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        throw "تم رفض إذن الوصول للموقع.";
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      await _showPermissionDialog(context);
+      throw "تم رفض إذن الموقع بشكل دائم.";
+    }
+
+    try {
+      Position position = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high);
+      return LatLng(position.latitude, position.longitude);
+    } catch (e) {
+      throw "فشل في تحديد الموقع الحالي.";
+    }
+  }
+
+  static Future<void> _showLocationServiceDialog(BuildContext context) async {
+    return showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('خدمة الموقع', textAlign: TextAlign.right),
+        content: const Text(
+            'خدمة الموقع غير مفعلة. هل تريد فتح الإعدادات لتفعيلها؟',
+            textAlign: TextAlign.right),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('إلغاء')),
+          TextButton(
+              onPressed: () async {
+                await Geolocator.openLocationSettings();
+                Navigator.of(context).pop();
+              },
+              child: const Text('فتح الإعدادات')),
+        ],
+      ),
+    );
+  }
+
+  static Future<void> _showPermissionDialog(BuildContext context) async {
+    return showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('إذن الموقع', textAlign: TextAlign.right),
+        content: const Text(
+            'تم رفض إذن الوصول للموقع بشكل دائم. يرجى تفعيله من إعدادات التطبيق.',
+            textAlign: TextAlign.right),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('إلغاء')),
+          TextButton(
+              onPressed: () async {
+                await Geolocator.openAppSettings();
+                Navigator.of(context).pop();
+              },
+              child: const Text('فتح الإعدادات')),
+        ],
+      ),
+    );
+  }
+}
+
+// Handles API data fetching
+class _ApiHelper {
+  static Future<List<Map<String, dynamic>>> fetchProviders(
+      String url, List<Map<String, dynamic>> sampleData) async {
+    try {
+      final response =
+          await http.get(Uri.parse(url)).timeout(const Duration(seconds: 30));
+      if (response.statusCode == 200) {
+        return List<Map<String, dynamic>>.from(
+            jsonDecode(utf8.decode(response.bodyBytes)));
+      } else {
+        // On failure, return sample data
+        return sampleData;
+      }
+    } catch (e) {
+      debugPrint('Network error: $e. Using sample data.');
+      // On error, return sample data
+      return sampleData;
+    }
+  }
+}
+
+// Generates BitmapDescriptor from an IconData
+class _BitmapGenerator {
+  static Future<BitmapDescriptor> fromIcon(IconData iconData, Color color,
+      {int size = 120, bool isSelected = false}) async {
+    final ui.PictureRecorder pictureRecorder = ui.PictureRecorder();
+    final Canvas canvas = Canvas(pictureRecorder);
+    final double iconSize = size.toDouble();
+
+    // Shadow for selected marker
+    if (isSelected) {
+      final Paint shadowPaint = Paint()
+        ..color = Colors.black.withOpacity(0.3)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10);
+      canvas.drawCircle(
+          Offset(iconSize / 2, iconSize / 2), iconSize * 0.4, shadowPaint);
+    }
+
+    // Background circle
+    final Paint backgroundPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(
+        Offset(iconSize / 2, iconSize / 2), iconSize * 0.4, backgroundPaint);
+
+    // Border
+    final Paint borderPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = isSelected ? 8.0 : 4.0;
+    canvas.drawCircle(
+        Offset(iconSize / 2, iconSize / 2), iconSize * 0.4, borderPaint);
+
+    // Icon
+    final TextPainter textPainter =
+        TextPainter(textDirection: TextDirection.ltr);
+    textPainter.text = TextSpan(
+      text: String.fromCharCode(iconData.codePoint),
+      style: TextStyle(
+        fontSize: iconSize * 0.6,
+        fontFamily: iconData.fontFamily,
+        package: iconData.fontPackage,
+        color: color,
+      ),
+    );
+    textPainter.layout();
+    textPainter.paint(
+      canvas,
+      Offset((iconSize - textPainter.width) / 2,
+          (iconSize - textPainter.height) / 2),
+    );
+
+    final img = await pictureRecorder.endRecording().toImage(size, size);
+    final data = await img.toByteData(format: ui.ImageByteFormat.png);
+    return BitmapDescriptor.fromBytes(data!.buffer.asUint8List());
+  }
+}
+
+// --- UI Widgets ---
+
+// Legend widget showing icon meanings
 class _LegendWidget extends StatelessWidget {
   final Map<String, Map<String, dynamic>> typeIconMap;
   final VoidCallback onClose;
@@ -572,8 +708,7 @@ class _LegendWidget extends StatelessWidget {
           color: Colors.white,
           borderRadius: BorderRadius.circular(16.r),
           boxShadow: const [
-            BoxShadow(
-                color: Colors.black26, blurRadius: 10, spreadRadius: 2)
+            BoxShadow(color: Colors.black26, blurRadius: 10, spreadRadius: 2)
           ],
           border: Border.all(
               color: theme.colorScheme.primary.withOpacity(0.3), width: 1.w),
@@ -635,6 +770,7 @@ class _LegendWidget extends StatelessWidget {
   }
 }
 
+// Bottom sheet for displaying provider details
 class _ProviderDetailsSheet extends StatelessWidget {
   final Map<String, dynamic> provider;
 
@@ -652,9 +788,7 @@ class _ProviderDetailsSheet extends StatelessWidget {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.vertical(top: Radius.circular(20.r)),
-            boxShadow: const [
-              BoxShadow(color: Colors.black26, blurRadius: 10)
-            ],
+            boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 10)],
           ),
           child: Column(
             children: [
@@ -695,7 +829,10 @@ class _ProviderDetailsSheet extends StatelessWidget {
                         .trim()
                         .isNotEmpty)
                       _buildInfoRow('التخصص:', provider['specialization']),
-                    if ((provider['package'] ?? '').toString().trim().isNotEmpty)
+                    if ((provider['package'] ?? '')
+                        .toString()
+                        .trim()
+                        .isNotEmpty)
                       _buildInfoRow('الباقات:', provider['package']),
                     SizedBox(height: 20.h),
                     Row(
@@ -703,7 +840,8 @@ class _ProviderDetailsSheet extends StatelessWidget {
                         if ((provider['phone'] ?? '').isNotEmpty)
                           Expanded(
                             child: ElevatedButton.icon(
-                              onPressed: () => _makePhoneCall(provider['phone']),
+                              onPressed: () =>
+                                  _makePhoneCall(provider['phone']),
                               icon: Icon(Icons.phone, size: 18.w),
                               label: Text("اتصال",
                                   style: TextStyle(fontSize: 14.sp)),
