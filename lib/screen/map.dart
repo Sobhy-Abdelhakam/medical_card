@@ -42,13 +42,14 @@ class _MapDataState extends State<MapData> {
   // --- UI State ---
   bool _isOffline = false;
   bool _showLegend = false;
-  String? _selectedType;
+  bool _isFilterOverlayVisible = false;
+  Set<String> _selectedTypes = {};
 
   // --- Caches & Data ---
   final Map<String, BitmapDescriptor> _typeBitmapCache = {};
   final Map<String, BitmapDescriptor> _typeBitmapCacheSelected = {};
   final List<Map<String, dynamic>> _sampleData = [
-    // Sample data remains the same...
+    // Sample data...
   ];
   final Map<String, Map<String, dynamic>> _typeIconMap = {
     'صيدلية': {'icon': Icons.local_pharmacy, 'color': Colors.green},
@@ -92,18 +93,14 @@ class _MapDataState extends State<MapData> {
     _connectivitySubscription = Connectivity()
         .onConnectivityChanged
         .listen((List<ConnectivityResult> result) {
+      if (!mounted) return;
       final isConnected =
           result.isNotEmpty && result.first != ConnectivityResult.none;
-      if (mounted) {
-        setState(() {
-          _isOffline = !isConnected;
-        });
-        if (isConnected) {
-          _loadData();
-        } else {
-          _showRetryDialog("لا يوجد اتصال بالإنترنت. يرجى التحقق من اتصالك.");
-        }
-      }
+      setState(() => _isOffline = !isConnected);
+      if (isConnected)
+        _loadData();
+      else
+        _showRetryDialog("لا يوجد اتصال بالإنترنت. يرجى التحقق من اتصالك.");
     });
   }
 
@@ -119,43 +116,36 @@ class _MapDataState extends State<MapData> {
   // --- Data & Filtering Logic ---
   Future<void> _loadData() async {
     if (!mounted) return;
-    setState(() {
-      _status = _MapStatus.loading;
-    });
+    setState(() => _status = _MapStatus.loading);
 
     try {
       final results = await Future.wait([
         _LocationService.getCurrentLocation(context),
         _ApiHelper.fetchProviders(_providersUrl, _sampleData),
       ]);
+      if (!mounted) return;
 
-      if (mounted) {
-        setState(() {
-          _currentLocation = results[0] as LatLng?;
-          _allProviders = results[1] as List<Map<String, dynamic>>;
-          _applyFilters(); // Apply initial filters
-          _status = _MapStatus.success;
-        });
-        if (_currentLocation != null) {
-          _animateToLocation(_currentLocation!, zoom: 14.0);
-        }
+      setState(() {
+        _currentLocation = results[0] as LatLng?;
+        _allProviders = results[1] as List<Map<String, dynamic>>;
+        _applyFilters();
+        _status = _MapStatus.success;
+      });
+      if (_currentLocation != null) {
+        _animateToLocation(_currentLocation!, zoom: 14.0);
       }
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _status = _MapStatus.failure;
-          _errorMessage = e.toString();
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _status = _MapStatus.failure;
+        _errorMessage = e.toString();
+      });
     }
   }
 
   void _onSearchChanged() {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
-    _debounce = Timer(const Duration(milliseconds: 500), () {
-      // After the debounce period, apply all current filters.
-      _applyFilters();
-    });
+    _debounce = Timer(const Duration(milliseconds: 500), _applyFilters);
   }
 
   void _applyFilters() {
@@ -164,12 +154,11 @@ class _MapDataState extends State<MapData> {
     final query = _searchController.text.toLowerCase().trim();
     var filtered = List<Map<String, dynamic>>.from(_allProviders);
 
-    // 1. Apply Type Filter first
-    if (_selectedType != null) {
-      filtered = filtered.where((p) => p['type'] == _selectedType).toList();
+    if (_selectedTypes.isNotEmpty) {
+      filtered =
+          filtered.where((p) => _selectedTypes.contains(p['type'])).toList();
     }
 
-    // 2. Then, apply the search query on the already filtered list
     if (query.length >= 3) {
       filtered = filtered.where((p) {
         final name = (p['name'] ?? '').toLowerCase();
@@ -181,35 +170,25 @@ class _MapDataState extends State<MapData> {
       }).toList();
     }
 
-    // 3. Sort by distance if location is available
     if (_currentLocation != null) {
       for (var provider in filtered) {
         final lat = provider['latitude'];
         final lng = provider['longitude'];
-
-        // Safely calculate distance, handling potential nulls from the API
         if (lat is num && lng is num) {
-          final distance = Geolocator.distanceBetween(
-            _currentLocation!.latitude,
-            _currentLocation!.longitude,
-            lat.toDouble(),
-            lng.toDouble(),
-          );
-          provider['distance'] = distance;
+          provider['distance'] = Geolocator.distanceBetween(
+              _currentLocation!.latitude,
+              _currentLocation!.longitude,
+              lat.toDouble(),
+              lng.toDouble());
         } else {
-          // Providers without coordinates are sorted to the end.
           provider['distance'] = double.maxFinite;
         }
       }
-      // Sort the list by the 'distance' key
       filtered.sort((a, b) =>
           (a['distance'] as double).compareTo(b['distance'] as double));
     }
 
-    setState(() {
-      _filteredProviders = filtered;
-    });
-
+    setState(() => _filteredProviders = filtered);
     _zoomToFilteredMarkers();
   }
 
@@ -221,14 +200,7 @@ class _MapDataState extends State<MapData> {
       body: Stack(
         children: [
           _buildMapContent(),
-          SafeArea(
-            child: Column(
-              children: [
-                _buildSearchBar(),
-                _buildCategoryFilters(),
-              ],
-            ),
-          ),
+          _buildTopBarAndFilterOverlay(),
           if (_isOffline) _buildOfflineBanner(),
           _buildLegend(),
         ],
@@ -236,8 +208,183 @@ class _MapDataState extends State<MapData> {
     );
   }
 
+  Widget _buildTopBarAndFilterOverlay() {
+    return SafeArea(
+      child: Column(
+        children: [
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 15.w, vertical: 10.h),
+            child: Row(
+              children: [
+                _buildFilterToggleButton(),
+                SizedBox(width: 8.w),
+                Expanded(child: _buildSearchBar()),
+              ],
+            ),
+          ),
+          _buildFilterOverlay(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterToggleButton() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        shape: BoxShape.circle,
+        boxShadow: const [
+          BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 2))
+        ],
+      ),
+      child: IconButton(
+        icon: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 300),
+          transitionBuilder: (child, animation) =>
+              ScaleTransition(scale: animation, child: child),
+          child: Icon(
+            _isFilterOverlayVisible ? Icons.close : Icons.filter_list,
+            key: ValueKey<bool>(_isFilterOverlayVisible),
+            color: Theme.of(context).primaryColor,
+          ),
+        ),
+        onPressed: () {
+          setState(() => _isFilterOverlayVisible = !_isFilterOverlayVisible);
+        },
+      ),
+    );
+  }
+
+  Widget _buildSearchBar() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(30.r),
+        boxShadow: const [
+          BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 2))
+        ],
+      ),
+      child: TextField(
+        controller: _searchController,
+        textAlign: TextAlign.right,
+        decoration: InputDecoration(
+          hintText: 'ابحث عن مستشفى، صيدلية، مدينة...',
+          hintStyle: TextStyle(color: Colors.grey.shade500),
+          prefixIcon: Icon(Icons.search, color: Theme.of(context).primaryColor),
+          suffixIcon: _searchController.text.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () {
+                    _searchController.clear();
+                    FocusScope.of(context).unfocus();
+                  },
+                )
+              : null,
+          border: InputBorder.none,
+          contentPadding:
+              EdgeInsets.symmetric(horizontal: 20.w, vertical: 14.h),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFilterOverlay() {
+    return AnimatedOpacity(
+      opacity: _isFilterOverlayVisible ? 1.0 : 0.0,
+      duration: const Duration(milliseconds: 300),
+      child: IgnorePointer(
+        ignoring: !_isFilterOverlayVisible,
+        child: Container(
+          margin: EdgeInsets.symmetric(horizontal: 15.w),
+          padding: EdgeInsets.all(12.w),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16.r),
+            boxShadow: const [
+              BoxShadow(
+                  color: Colors.black26, blurRadius: 10, offset: Offset(0, 4))
+            ],
+          ),
+          child: GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              childAspectRatio: 2.5,
+              crossAxisSpacing: 8.w,
+              mainAxisSpacing: 8.h,
+            ),
+            itemCount: _typeIconMap.length + 1,
+            itemBuilder: (context, index) {
+              if (index == 0) {
+                return _buildAllChip();
+              }
+              final entry = _typeIconMap.entries.elementAt(index - 1);
+              return _buildCategoryChip(entry.key, entry.value);
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAllChip() {
+    final isSelected = _selectedTypes.isEmpty;
+    return FilterChip(
+      label: const Text('الكل'),
+      selected: isSelected,
+      onSelected: (selected) {
+        if (selected) {
+          setState(() => _selectedTypes.clear());
+          _applyFilters();
+        }
+      },
+      backgroundColor: Colors.grey.shade200,
+      selectedColor: Theme.of(context).primaryColor,
+      labelStyle: TextStyle(
+        color: isSelected ? Colors.white : Colors.black87,
+        fontWeight: FontWeight.w600,
+      ),
+      checkmarkColor: Colors.white,
+    );
+  }
+
+  Widget _buildCategoryChip(String typeName, Map<String, dynamic> typeInfo) {
+    final isSelected = _selectedTypes.contains(typeName);
+    return FilterChip(
+      avatar: Icon(
+        typeInfo['icon'],
+        size: 18.sp,
+        color: isSelected ? Colors.white : typeInfo['color'],
+      ),
+      label: Text(typeName),
+      selected: isSelected,
+      onSelected: (selected) {
+        setState(() {
+          if (selected) {
+            _selectedTypes.add(typeName);
+          } else {
+            _selectedTypes.remove(typeName);
+          }
+        });
+        _applyFilters();
+      },
+      backgroundColor: Colors.grey.shade200,
+      selectedColor: typeInfo['color'],
+      labelStyle: TextStyle(
+        color: isSelected ? Colors.white : Colors.black87,
+      ),
+      checkmarkColor: Colors.white,
+    );
+  }
+
+  // --- Other Methods & Widgets ---
+  // All other methods like _buildMapContent, _zoomToFilteredMarkers, _generateTypeIcons,
+  // _animateToLocation, _goToMyLocation, _showProviderDetails, _showRetryDialog,
+  // _buildFloatingActionButtons, _buildMarkersSet, _buildLegend, _buildOfflineBanner,
+  // and the helper classes remain the same as the previous version.
+  // ...
   Widget _buildMapContent() {
-    // ... remains the same
     switch (_status) {
       case _MapStatus.loading:
         return Center(
@@ -293,7 +440,7 @@ class _MapDataState extends State<MapData> {
             }
           },
           myLocationEnabled: true,
-          myLocationButtonEnabled: false, // Disabled default button
+          myLocationButtonEnabled: false,
           zoomControlsEnabled: true,
           compassEnabled: true,
           mapToolbarEnabled: true,
@@ -301,111 +448,6 @@ class _MapDataState extends State<MapData> {
     }
   }
 
-  Widget _buildSearchBar() {
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: 15.w, vertical: 10.h),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(30.r),
-          boxShadow: const [
-            BoxShadow(
-                color: Colors.black26, blurRadius: 10, offset: Offset(0, 2))
-          ],
-        ),
-        child: TextField(
-          controller: _searchController,
-          textAlign: TextAlign.right,
-          decoration: InputDecoration(
-            hintText: 'ابحث عن مستشفى، صيدلية، مدينة...',
-            hintStyle: TextStyle(color: Colors.grey.shade500),
-            prefixIcon:
-                Icon(Icons.search, color: Theme.of(context).primaryColor),
-            suffixIcon: _searchController.text.isNotEmpty
-                ? IconButton(
-                    icon: const Icon(Icons.clear),
-                    onPressed: () {
-                      _searchController.clear();
-                      FocusScope.of(context).unfocus();
-                    },
-                  )
-                : null,
-            border: InputBorder.none,
-            contentPadding:
-                EdgeInsets.symmetric(horizontal: 20.w, vertical: 14.h),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCategoryFilters() {
-    return Container(
-      height: 50.h,
-      padding: EdgeInsets.only(bottom: 8.h),
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.symmetric(horizontal: 12.w),
-        children: [
-          // "All" chip
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: 4.w),
-            child: FilterChip(
-              label: const Text('الكل'),
-              selected: _selectedType == null,
-              onSelected: (selected) {
-                setState(() {
-                  _selectedType = null;
-                });
-                _applyFilters();
-              },
-              backgroundColor: Colors.white.withOpacity(0.8),
-              selectedColor: Theme.of(context).primaryColor,
-              labelStyle: TextStyle(
-                color: _selectedType == null ? Colors.white : Colors.black87,
-              ),
-              checkmarkColor: Colors.white,
-            ),
-          ),
-          // Category chips
-          ..._typeIconMap.entries.map((entry) {
-            final typeName = entry.key;
-            final typeInfo = entry.value;
-            final isSelected = _selectedType == typeName;
-
-            return Padding(
-              padding: EdgeInsets.symmetric(horizontal: 4.w),
-              child: FilterChip(
-                avatar: Icon(
-                  typeInfo['icon'],
-                  size: 18.sp,
-                  color: isSelected ? Colors.white : typeInfo['color'],
-                ),
-                label: Text(typeName),
-                selected: isSelected,
-                onSelected: (selected) {
-                  setState(() {
-                    _selectedType = selected ? typeName : null;
-                  });
-                  _applyFilters();
-                },
-                backgroundColor: Colors.white.withOpacity(0.8),
-                selectedColor: typeInfo['color'],
-                labelStyle: TextStyle(
-                  color: isSelected ? Colors.white : Colors.black87,
-                ),
-                checkmarkColor: Colors.white,
-              ),
-            );
-          }).toList(),
-        ],
-      ),
-    );
-  }
-
-  // Other build methods like _buildFloatingActionButtons, _buildMarkersSet, etc. remain largely the same
-  // ...
-  // --- Map and UI Logic ---
   void _zoomToFilteredMarkers() {
     if (!mounted || _filteredProviders.isEmpty || _mapController == null)
       return;
@@ -439,7 +481,7 @@ class _MapDataState extends State<MapData> {
     );
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return; // Safety check
+      if (!mounted) return;
       _mapController?.animateCamera(CameraUpdate.newLatLngBounds(bounds, 50.w));
     });
   }
@@ -455,7 +497,6 @@ class _MapDataState extends State<MapData> {
             iconData, color,
             size: 180, isSelected: true);
       }
-      // Default icons
       _typeBitmapCache['default'] = await _BitmapGenerator.fromIcon(
           Icons.location_on, Colors.blue,
           size: 120);
@@ -468,14 +509,14 @@ class _MapDataState extends State<MapData> {
   }
 
   void _animateToLocation(LatLng position, {double zoom = 14.0}) {
-    if (!mounted) return; // Safety check
+    if (!mounted) return;
     _mapController?.animateCamera(CameraUpdate.newLatLngZoom(position, zoom));
   }
 
   Future<void> _goToMyLocation() async {
     try {
       final position = await _LocationService.getCurrentLocation(context);
-      if (!mounted) return; // Safety check
+      if (!mounted) return;
 
       if (position != null) {
         setState(() {
@@ -647,8 +688,6 @@ class _MapDataState extends State<MapData> {
 }
 
 // --- Helper Classes & Widgets ---
-// (These remain unchanged: _LocationService, _ApiHelper, _BitmapGenerator, _LegendWidget, _ProviderDetailsSheet)
-// NOTE: The placeholder comment above is for brevity. The actual unchanged classes will be included in the final file.
 class _LocationService {
   static Future<LatLng?> getCurrentLocation(BuildContext context) async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
