@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -7,643 +8,460 @@ import '../model/dataModel.dart';
 
 class ShowData extends StatefulWidget {
   final String item;
-  final bool searchOnly;
-  const ShowData({required this.item, this.searchOnly = false, super.key});
+  const ShowData({required this.item, super.key});
 
   @override
   State<ShowData> createState() => _ShowDataState();
 }
 
 class _ShowDataState extends State<ShowData> {
-  String get apiUrl => "https://providers.euro-assist.com/api/arabic-providers";
+  // --- State Variables ---
+  bool _isLoading = true;
+  String? _errorMessage;
 
-  List<ServiceProvider> allServiceProviders = [];
-  List<ServiceProvider> filteredProviders = [];
-  List<String> cities = [];
-  String? selectedCity;
-  bool isLoading = false;
-  String? errorMessage;
+  List<ServiceProvider> _allServiceProviders = [];
+  List<ServiceProvider> _filteredProviders = [];
+  List<String> _cities = [];
 
-  final ScrollController _scrollController = ScrollController();
-
-  // Provider name filter
-  List<String> providerNames = [];
-  String? selectedProviderName;
-
+  // --- Filtering and Searching ---
+  String? _selectedCity;
   final TextEditingController _searchController = TextEditingController();
-  String searchQuery = '';
+  Timer? _debounce;
 
   @override
   void initState() {
     super.initState();
-    fetchProviderNames();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final args = ModalRoute.of(context)?.settings.arguments;
-      bool searchOnlyArg = widget.searchOnly;
-      String? typeArg;
-
-      if (args is Map) {
-        if (args['search'] != null && args['search'].toString().isNotEmpty) {
-          setState(() {
-            searchQuery = args['search'];
-            _searchController.text = searchQuery;
-          });
-        }
-
-        if (args['searchOnly'] == true) searchOnlyArg = true;
-        if (args['type'] != null) {
-          typeArg = args['type'];
-        }
-      }
-
-      fetchData(searchOnly: searchOnlyArg, type: typeArg);
-    });
-
-    _scrollController.addListener(_onScroll);
+    _fetchData();
+    _searchController.addListener(_onSearchChanged);
   }
 
   @override
   void dispose() {
-    _scrollController.dispose();
     _searchController.dispose();
+    _debounce?.cancel();
     super.dispose();
   }
 
-  void _onScroll() {
-    // No pagination in new API, so no infinite scroll needed
-  }
-
-  Future<void> fetchProviderNames() async {
-    try {
-      final response = await http.get(Uri.parse(
-          "https://providers.euro-assist.com/api/arabic-providers/distinct/names"));
-      if (response.statusCode == 200) {
-        final jsonData = json.decode(response.body);
-        setState(() {
-          providerNames = List<String>.from(jsonData['names'] ?? []);
-        });
-      }
-    } catch (e) {
-      // ignore error
-    }
-  }
-
-  Future<void> fetchData({bool? searchOnly, String? type}) async {
+  // --- Data Fetching ---
+  Future<void> _fetchData() async {
     setState(() {
-      isLoading = true;
-      errorMessage = null;
-      allServiceProviders.clear();
-      filteredProviders.clear();
-      cities.clear();
+      _isLoading = true;
+      _errorMessage = null;
     });
 
     try {
-      String url = apiUrl;
-
-      if (searchOnly ?? widget.searchOnly) {
-        if (searchQuery.isNotEmpty) {
-          url += "?search=${Uri.encodeComponent(searchQuery)}";
-        }
-      } else {
-        bool hasQuery = false;
-        if (type != null && type.isNotEmpty) {
-          url += "?type=${Uri.encodeComponent(type)}";
-          hasQuery = true;
-        } else if (widget.item.isNotEmpty) {
-          url += "?type=${Uri.encodeComponent(widget.item)}";
-          hasQuery = true;
-        }
-        if (searchQuery.isNotEmpty) {
-          url +=
-              "${hasQuery ? '&' : '?'}search=${Uri.encodeComponent(searchQuery)}";
-        }
-      }
+      final url =
+          "https://providers.euro-assist.com/api/arabic-providers?type=${Uri.encodeComponent(widget.item)}";
       final response =
-          await http.get(Uri.parse(url)).timeout(const Duration(seconds: 10));
+          await http.get(Uri.parse(url)).timeout(const Duration(seconds: 15));
+
       if (response.statusCode == 200) {
         final List<dynamic> dataList = json.decode(response.body);
-        Set<String> citySet = Set.from(cities);
-        List<ServiceProvider> providersList = [];
-        for (var item in dataList) {
+        final Set<String> citySet = {};
+        final providersList = dataList.map((item) {
           final provider = ServiceProvider.fromJson(item);
-          providersList.add(provider);
-          if (provider.city.isNotEmpty) citySet.add(provider.city);
-        }
+          if (provider.city.isNotEmpty) {
+            citySet.add(provider.city);
+          }
+          return provider;
+        }).toList();
+
         setState(() {
-          allServiceProviders = providersList;
-          cities = citySet.toList();
-          filterData();
+          _allServiceProviders = providersList;
+          _cities = citySet.toList()..sort();
+          _applyFilters(); // Apply initial filters (which will be none)
         });
       } else {
-        throw Exception('خطأ في تحميل البيانات:  {response.statusCode}');
+        throw Exception('خطأ في تحميل البيانات: ${response.statusCode}');
       }
     } catch (e) {
       setState(() {
-        errorMessage = "فشل تحميل البيانات، تأكد من اتصال الإنترنت.";
+        _errorMessage = "فشل تحميل البيانات، تأكد من اتصال الإنترنت.";
       });
     } finally {
       setState(() {
-        isLoading = false;
+        _isLoading = false;
       });
     }
   }
 
-  void filterData() {
-    setState(() {
-      filteredProviders = allServiceProviders
-          .where((provider) =>
-              (selectedCity == null || provider.city == selectedCity))
-          .toList();
+  // --- Filtering Logic ---
+  void _onSearchChanged() {
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+    _debounce = Timer(const Duration(milliseconds: 400), () {
+      _applyFilters();
     });
   }
 
-  List<String> _splitPhoneNumbers(String phoneNumbers) {
-    return phoneNumbers
-        .split('/')
-        .map((number) => number.trim())
-        .where((number) => number.isNotEmpty)
-        .toList();
+  void _applyFilters() {
+    setState(() {
+      final searchQuery = _searchController.text.toLowerCase();
+      _filteredProviders = _allServiceProviders.where((provider) {
+        final matchesCity =
+            _selectedCity == null || provider.city == _selectedCity;
+        final matchesSearch = searchQuery.isEmpty ||
+            provider.name.toLowerCase().contains(searchQuery);
+        return matchesCity && matchesSearch;
+      }).toList();
+    });
   }
 
-  Future<void> _makePhoneCall(String phoneNumber) async {
-    final Uri launchUri = Uri(
-      scheme: 'tel',
-      path: phoneNumber,
-    );
-    try {
-      if (await canLaunchUrl(launchUri)) {
-        await launchUrl(launchUri);
-      } else {
-        throw 'تعذر فتح تطبيق الهاتف';
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('تعذر الاتصال: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  void _showCallDialog(BuildContext context, String phoneNumbers) {
-    final List<String> numbers = _splitPhoneNumbers(phoneNumbers);
-    final isLandscape =
-        MediaQuery.of(context).orientation == Orientation.landscape;
-
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16.0),
-          ),
-          insetPadding: EdgeInsets.symmetric(
-            horizontal: isLandscape ? 80.w : 20.w,
-            vertical: isLandscape ? 20.h : 80.h,
-          ),
-          child: Container(
-            padding: EdgeInsets.all(20.w),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16.0),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  padding: EdgeInsets.all(12.w),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.phone,
-                    size: isLandscape ? 28.w : 32.w,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                ),
-                SizedBox(height: 16.h),
-                Text(
-                  'اختر رقم للاتصال',
-                  style: TextStyle(
-                    fontSize: isLandscape ? 16.sp : 18.sp,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                SizedBox(height: 16.h),
-                SizedBox(
-                  height: isLandscape ? 120.h : null,
-                  child: SingleChildScrollView(
-                    child: Column(
-                      children: numbers.map((number) {
-                        return Padding(
-                          padding: EdgeInsets.symmetric(vertical: 8.h),
-                          child: ListTile(
-                            leading:
-                                Icon(Icons.phone, color: Theme.of(context).colorScheme.primary),
-                            title: Text(
-                              number,
-                              style: TextStyle(
-                                fontSize: isLandscape ? 14.sp : 16.sp,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            onTap: () {
-                              Navigator.of(context).pop();
-                              _makePhoneCall(number);
-                            },
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                ),
-                SizedBox(height: 16.h),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: Text('إلغاء'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
+  // --- UI Build Methods ---
   @override
   Widget build(BuildContext context) {
-    final isLandscape =
-        MediaQuery.of(context).orientation == Orientation.landscape;
-
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: isLandscape
-            ? null
-            : AppBar(
-                iconTheme: const IconThemeData(color: Colors.white),
-                backgroundColor: Theme.of(context).colorScheme.primary,
-                title: Text(widget.item,
-                    style: const TextStyle(color: Colors.white)),
-              ),
-        body: SafeArea(
-          top: !isLandscape,
-          child: RefreshIndicator(
-            onRefresh: () async {
-              await fetchData();
-            },
-            child: isLoading
-                ? Center(
-                    child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary))
-                : errorMessage != null
-                    ? Center(
-                        child: Text(
-                          errorMessage!,
-                          style:
-                              TextStyle(fontSize: isLandscape ? 14.sp : 16.sp),
-                        ),
-                      )
-                    : Column(
-                        children: [
-                          if (!isLandscape) SizedBox(height: 8.h),
-                          Padding(
-                            padding: EdgeInsets.symmetric(
-                              horizontal: isLandscape ? 16.w : 8.w,
-                              vertical: isLandscape ? 8.h : 0,
-                            ),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: DropdownButtonFormField<String>(
-                                    initialValue: selectedCity,
-                                    decoration: InputDecoration(
-                                      border: OutlineInputBorder(
-                                        borderRadius:
-                                            BorderRadius.circular(10.w),
-                                        borderSide: BorderSide(
-                                            color: Theme.of(context).colorScheme.primary,
-                                            width: 1.w),
-                                      ),
-                                      contentPadding: EdgeInsets.symmetric(
-                                        horizontal: 12.w,
-                                        vertical: isLandscape ? 8.h : 12.h,
-                                      ),
-                                      filled: true,
-                                      fillColor: Colors.white,
-                                    ),
-                                    hint: Text(
-                                      "اختر المدينة",
-                                      style: TextStyle(
-                                          fontSize:
-                                              isLandscape ? 14.sp : 16.sp),
-                                    ),
-                                    isExpanded: true,
-                                    onChanged: (String? newValue) {
-                                      setState(() {
-                                        selectedCity = newValue;
-                                        filterData();
-                                      });
-                                    },
-                                    items: cities.map<DropdownMenuItem<String>>(
-                                        (String value) {
-                                      return DropdownMenuItem<String>(
-                                        value: value,
-                                        child: Text(
-                                          value,
-                                          style: TextStyle(
-                                              fontSize:
-                                                  isLandscape ? 14.sp : 16.sp),
-                                        ),
-                                      );
-                                    }).toList(),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          // Search box
-                          Padding(
-                            padding: EdgeInsets.symmetric(
-                                horizontal: isLandscape ? 16.w : 8.w,
-                                vertical: 8.h),
-                            child: TextField(
-                              controller: _searchController,
-                              onSubmitted: (value) async {
-                                searchQuery = value.trim();
-                                await fetchData();
-                              },
-                              decoration: InputDecoration(
-                                hintText: 'ابحث باسم مقدم الخدمة...',
-                                prefixIcon: Icon(Icons.search),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(10.w),
-                                  borderSide: BorderSide(
-                                      color: Theme.of(context).colorScheme.primary, width: 1.w),
-                                ),
-                                contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 12.w, vertical: 12.h),
-                                filled: true,
-                                fillColor: Colors.white,
-                              ),
-                            ),
-                          ),
-                          SizedBox(height: isLandscape ? 8.h : 0),
-                          Expanded(
-                            child: filteredProviders.isEmpty
-                                ? Center(
-                                    child: Text(
-                                      "لا توجد بيانات متاحة",
-                                      style: TextStyle(
-                                          fontSize:
-                                              isLandscape ? 14.sp : 16.sp),
-                                    ),
-                                  )
-                                : ListView.builder(
-                                    controller: _scrollController,
-                                    padding: EdgeInsets.symmetric(
-                                      horizontal: isLandscape ? 16.w : 8.w,
-                                      vertical: 8.h,
-                                    ),
-                                    itemCount: filteredProviders.length,
-                                    itemBuilder: (context, index) {
-                                      final provider = filteredProviders[index];
-                                      return GestureDetector(
-                                        onTap: () => _showProviderDetailsPopup(
-                                            provider, isLandscape),
-                                        child: Card(
-                                          margin: EdgeInsets.symmetric(
-                                            horizontal: isLandscape ? 4.w : 8.w,
-                                            vertical: 8.h,
-                                          ),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(12.w),
-                                          ),
-                                          elevation: 2,
-                                          child: ListTile(
-                                            contentPadding:
-                                                EdgeInsets.symmetric(
-                                              horizontal:
-                                                  isLandscape ? 12.w : 16.w,
-                                              vertical:
-                                                  isLandscape ? 8.h : 12.h,
-                                            ),
-                                            leading: Icon(
-                                              Icons.business,
-                                              color: Theme.of(context).colorScheme.primary,
-                                              size: isLandscape ? 28.w : 32.w,
-                                            ),
-                                            title: Text(
-                                              provider.name,
-                                              style: TextStyle(
-                                                fontSize:
-                                                    isLandscape ? 16.sp : 18.sp,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                            subtitle: Padding(
-                                              padding:
-                                                  EdgeInsets.only(top: 8.h),
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  if (provider.city.isNotEmpty)
-                                                    _infoRow(Icons.location_on,
-                                                        provider.city),
-                                                  if (provider
-                                                      .address.isNotEmpty)
-                                                    _infoRow(Icons.place,
-                                                        provider.address),
-                                                  if (provider.phone.isNotEmpty)
-                                                    _infoRow(Icons.phone,
-                                                        provider.phone,
-                                                        isLink: true,
-                                                        onTap: () {
-                                                      _showCallDialog(context,
-                                                          provider.phone);
-                                                    }),
-                                                  if (provider
-                                                      .discount.isNotEmpty)
-                                                    _infoRow(Icons.discount,
-                                                        provider.discount,
-                                                        color: Colors.green),
-                                                  if (provider.specialization !=
-                                                          null &&
-                                                      provider.specialization!
-                                                          .isNotEmpty)
-                                                    _infoRow(
-                                                        Icons.medical_services,
-                                                        provider
-                                                            .specialization!,
-                                                        color: Colors.purple),
-                                                  if (provider.package !=
-                                                          null &&
-                                                      provider
-                                                          .package!.isNotEmpty)
-                                                    _infoRow(
-                                                        Icons.card_giftcard,
-                                                        provider.package!,
-                                                        color: Colors.orange),
-                                                  if (provider
-                                                      .mapUrl.isNotEmpty)
-                                                    Padding(
-                                                      padding: EdgeInsets.only(
-                                                          top: 8.h),
-                                                      child:
-                                                          ElevatedButton.icon(
-                                                        onPressed: () =>
-                                                            _openLocationOnMap(
-                                                                provider
-                                                                    .mapUrl),
-                                                        icon: Icon(Icons.map),
-                                                        label: const Text(
-                                                            'افتح في خرائط جوجل'),
-                                                        style: ElevatedButton
-                                                            .styleFrom(
-                                                          backgroundColor:
-                                                              Colors.blue,
-                                                          shape:
-                                                              RoundedRectangleBorder(
-                                                            borderRadius:
-                                                                BorderRadius
-                                                                    .circular(
-                                                                        8.w),
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    ),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      );
-                                    }),
-                          ),
-                        ],
-                      ),
-          ),
+        backgroundColor: Colors.grey.shade100,
+        appBar: AppBar(
+          iconTheme: const IconThemeData(color: Colors.white),
+          backgroundColor: Theme.of(context).colorScheme.primary,
+          title: Text(widget.item, style: const TextStyle(color: Colors.white)),
+          elevation: 2,
+        ),
+        body: RefreshIndicator(
+          onRefresh: _fetchData,
+          child: _buildBody(),
         ),
       ),
     );
   }
 
-  Widget _infoRow(IconData icon, String text,
-      {bool isLink = false, Color color = Colors.grey, VoidCallback? onTap}) {
-    final isLandscape =
-        MediaQuery.of(context).orientation == Orientation.landscape;
-
-    return Padding(
-      padding: EdgeInsets.symmetric(vertical: 4.h),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: isLandscape ? 16.w : 18.w, color: color),
-          SizedBox(width: 8.w),
-          Expanded(
-            child: Align(
-                alignment: Alignment.centerRight,
-                child: isLink
-                    ? InkWell(
-                        onTap: onTap,
-                        child: Text(
-                          text.replaceAll('/', ' / '),
-                          style: TextStyle(
-                            color: Colors.blue,
-                            decoration: TextDecoration.underline,
-                            fontSize: isLandscape ? 12.sp : 14.sp,
-                          ),
-                        ),
-                      )
-                    : Text(
-                        text,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: isLandscape ? 12.sp : 14.sp),
-                      )),
+  Widget _buildBody() {
+    if (_isLoading) {
+      return Center(
+          child: CircularProgressIndicator(
+              color: Theme.of(context).colorScheme.primary));
+    }
+    if (_errorMessage != null) {
+      return Center(
+        child: Padding(
+          padding: EdgeInsets.all(16.w),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(_errorMessage!, textAlign: TextAlign.center),
+              SizedBox(height: 16.h),
+              ElevatedButton(
+                onPressed: _fetchData,
+                child: const Text("إعادة المحاولة"),
+              )
+            ],
           ),
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        _buildFilterControls(),
+        Expanded(
+          child: _filteredProviders.isEmpty
+              ? _buildEmptyState()
+              : _buildProvidersList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFilterControls() {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // Search Field
+          TextField(
+            controller: _searchController,
+            decoration: InputDecoration(
+              hintText: 'ابحث بالاسم...',
+              prefixIcon: const Icon(Icons.search),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12.r),
+                borderSide: BorderSide.none,
+              ),
+              filled: true,
+              fillColor: Colors.grey.shade100,
+              contentPadding: EdgeInsets.symmetric(vertical: 10.h),
+            ),
+          ),
+          SizedBox(height: 12.h),
+          // City Filter Dropdown
+          if (_cities.isNotEmpty)
+            DropdownButtonFormField<String>(
+              value: _selectedCity,
+              hint: const Text('اختر مدينة'),
+              isExpanded: true,
+              decoration: InputDecoration(
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12.r),
+                  borderSide: BorderSide.none,
+                ),
+                filled: true,
+                fillColor: Colors.grey.shade100,
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+              ),
+              onChanged: (String? newValue) {
+                setState(() {
+                  _selectedCity = newValue;
+                  _applyFilters();
+                });
+              },
+              items: [
+                const DropdownMenuItem<String>(
+                  value: null,
+                  child: Text('كل المدن'),
+                ),
+                ..._cities.map<DropdownMenuItem<String>>((String value) {
+                  return DropdownMenuItem<String>(
+                    value: value,
+                    child: Text(value),
+                  );
+                }),
+              ],
+            ),
         ],
       ),
     );
   }
 
-  Future<void> _openLocationOnMap(String mapUrl) async {
-    final Uri uri = Uri.parse(mapUrl);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر فتح خرائط جوجل')),
-      );
-    }
+  Widget _buildProvidersList() {
+    return ListView.builder(
+      padding: EdgeInsets.all(12.w),
+      itemCount: _filteredProviders.length,
+      itemBuilder: (context, index) {
+        final provider = _filteredProviders[index];
+        return _ProviderCard(provider: provider);
+      },
+    );
   }
 
-  void _showProviderDetailsPopup(ServiceProvider provider, bool isLandscape) {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return Dialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
-          child: SingleChildScrollView(
-            padding: EdgeInsets.all(20.w),
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.search_off, size: 60.w, color: Colors.grey.shade400),
+          SizedBox(height: 16.h),
+          Text(
+            "لا توجد نتائج مطابقة",
+            style: TextStyle(fontSize: 16.sp, color: Colors.grey.shade600),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// --- Custom Widgets ---
+
+class _ProviderCard extends StatelessWidget {
+  final ServiceProvider provider;
+
+  const _ProviderCard({required this.provider});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.symmetric(vertical: 8.h),
+      elevation: 2,
+      shadowColor: Colors.black.withOpacity(0.1),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12.r),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: ExpansionTile(
+        tilePadding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
+        leading: CircleAvatar(
+          backgroundColor:
+              Theme.of(context).colorScheme.primary.withOpacity(0.1),
+          child: Icon(
+            Icons.business,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+        ),
+        title: Text(
+          provider.name,
+          style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold),
+        ),
+        subtitle: Padding(
+          padding: EdgeInsets.only(top: 4.h),
+          child: Text(
+            provider.city,
+            style: TextStyle(fontSize: 13.sp, color: Colors.grey.shade600),
+          ),
+        ),
+        children: [
+          Padding(
+            padding: EdgeInsets.fromLTRB(16.w, 0, 16.w, 16.h),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(provider.name,
-                    style: TextStyle(
-                        fontSize: 20.sp,
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.primary)),
-                SizedBox(height: 12.h),
-                Divider(),
-                if (provider.type.isNotEmpty)
-                  _infoRow(Icons.category, provider.type),
-                if (provider.city.isNotEmpty)
-                  _infoRow(Icons.location_on, provider.city),
+                const Divider(),
                 if (provider.address.isNotEmpty)
-                  _infoRow(Icons.place, provider.address),
-                if (provider.phone.isNotEmpty)
-                  _infoRow(Icons.phone, provider.phone, isLink: true,
-                      onTap: () {
-                    _showCallDialog(context, provider.phone);
-                  }),
+                  _InfoRow(icon: Icons.place_outlined, text: provider.address),
                 if (provider.discount.isNotEmpty)
-                  _infoRow(Icons.discount, provider.discount,
-                      color: Colors.green),
+                  _InfoRow(
+                      icon: Icons.discount_outlined,
+                      text: provider.discount,
+                      color: Colors.green.shade700),
                 if (provider.specialization != null &&
                     provider.specialization!.isNotEmpty)
-                  _infoRow(Icons.medical_services, provider.specialization!,
-                      color: Colors.purple),
+                  _InfoRow(
+                      icon: Icons.medical_services_outlined,
+                      text: provider.specialization!,
+                      color: Colors.purple.shade700),
                 if (provider.package != null && provider.package!.isNotEmpty)
-                  _infoRow(Icons.card_giftcard, provider.package!,
-                      color: Colors.orange),
+                  _InfoRow(
+                      icon: Icons.card_giftcard_outlined,
+                      text: provider.package!,
+                      color: Colors.orange.shade700),
+                if (provider.phone.isNotEmpty)
+                  _InfoRow(
+                    icon: Icons.phone_outlined,
+                    text: provider.phone.replaceAll('/', ' / '),
+                    color: Colors.blue.shade700,
+                    isLink: true,
+                    onTap: () => _showCallDialog(context, provider.phone),
+                  ),
                 if (provider.mapUrl.isNotEmpty)
                   Padding(
-                    padding: EdgeInsets.only(top: 8.h),
-                    child: ElevatedButton.icon(
-                      onPressed: () => _openLocationOnMap(provider.mapUrl),
-                      icon: Icon(Icons.map),
-                      label: Text('افتح في خرائط جوجل'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8.w),
+                    padding: EdgeInsets.only(top: 12.h),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () =>
+                            _openLocationOnMap(context, provider.mapUrl),
+                        icon: const Icon(Icons.map_outlined),
+                        label: const Text('افتح في خرائط جوجل'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8.r),
+                          ),
                         ),
                       ),
                     ),
                   ),
               ],
             ),
+          )
+        ],
+      ),
+    );
+  }
+
+  void _showCallDialog(BuildContext context, String phoneNumbers) {
+    final numbers = phoneNumbers
+        .split('/')
+        .map((n) => n.trim())
+        .where((n) => n.isNotEmpty)
+        .toList();
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.r)),
+          title: const Text('اختر رقم للاتصال'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: numbers
+                  .map((number) => ListTile(
+                        leading: Icon(Icons.phone,
+                            color: Theme.of(context).primaryColor),
+                        title: Text(number),
+                        onTap: () {
+                          Navigator.of(context).pop();
+                          _makePhoneCall(context, number);
+                        },
+                      ))
+                  .toList(),
+            ),
           ),
+          actions: [
+            TextButton(
+              child: const Text('إلغاء'),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+          ],
         );
       },
+    );
+  }
+
+  Future<void> _makePhoneCall(BuildContext context, String phoneNumber) async {
+    final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
+    if (!await launchUrl(launchUri)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذر إجراء المكالمة')),
+      );
+    }
+  }
+
+  Future<void> _openLocationOnMap(BuildContext context, String mapUrl) async {
+    final Uri uri = Uri.parse(mapUrl);
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذر فتح خرائط جوجل')),
+      );
+    }
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  final Color? color;
+  final bool isLink;
+  final VoidCallback? onTap;
+
+  const _InfoRow({
+    required this.icon,
+    required this.text,
+    this.color,
+    this.isLink = false,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 6.h),
+      child: InkWell(
+        onTap: isLink ? onTap : null,
+        borderRadius: BorderRadius.circular(8.r),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 18.w, color: color ?? Colors.grey.shade700),
+            SizedBox(width: 12.w),
+            Expanded(
+              child: Text(
+                text,
+                style: TextStyle(
+                  fontSize: 14.sp,
+                  color: isLink ? Colors.blue.shade700 : null,
+                  decoration: isLink ? TextDecoration.underline : null,
+                  decorationColor: Colors.blue.shade700,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
