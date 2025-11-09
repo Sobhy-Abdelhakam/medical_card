@@ -238,6 +238,8 @@ class _MapDataState extends State<MapData> {
     });
   }
 
+  // --- Map and UI Logic ---
+
   // Generates custom bitmap icons for each provider type
   Future<void> _generateTypeIcons() async {
     try {
@@ -267,9 +269,30 @@ class _MapDataState extends State<MapData> {
     _mapController?.animateCamera(CameraUpdate.newLatLngZoom(position, zoom));
   }
 
+  // Fetches current location and animates the map
+  Future<void> _goToMyLocation() async {
+    try {
+      final position = await _LocationService.getCurrentLocation(context);
+      if (position != null) {
+        setState(() {
+          _currentLocation = position;
+        });
+        _animateToLocation(position, zoom: 14.0);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString(), textAlign: TextAlign.right),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   // Shows provider details in a bottom sheet
   void _showProviderDetails(Map<String, dynamic> provider) {
-    // This fetches full details, but for now we use the data we have
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -287,7 +310,7 @@ class _MapDataState extends State<MapData> {
     });
   }
 
-  // Dialogs for retrying actions or showing errors
+  // Dialog for retrying actions
   void _showRetryDialog(String message) {
     showDialog(
       context: context,
@@ -314,23 +337,41 @@ class _MapDataState extends State<MapData> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // resizeToAvoidBottomInset: false, // Prevents keyboard from pushing UI up
-      floatingActionButton: Padding(
-        padding: EdgeInsets.only(bottom: 90.h, right: 4.w),
-        child: FloatingActionButton(
-          heroTag: "legend",
-          backgroundColor: Theme.of(context).colorScheme.primary,
-          onPressed: () => setState(() => _showLegend = !_showLegend),
-          child: Icon(_showLegend ? Icons.close : Icons.info_outline,
-              color: Colors.white),
-        ),
-      ),
+      floatingActionButton: _buildFloatingActionButtons(),
       body: Stack(
         children: [
           _buildMapContent(),
           _buildSearchBar(),
           if (_isOffline) _buildOfflineBanner(),
           _buildLegend(),
+        ],
+      ),
+    );
+  }
+
+  // Builds the stacked floating action buttons
+  Widget _buildFloatingActionButtons() {
+    return Padding(
+      padding: EdgeInsets.only(bottom: 50.h),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.end,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          FloatingActionButton(
+            heroTag: "my_location",
+            backgroundColor: Colors.white,
+            foregroundColor: Theme.of(context).primaryColor,
+            onPressed: _goToMyLocation,
+            child: const Icon(Icons.my_location),
+          ),
+          SizedBox(height: 16.h),
+          FloatingActionButton(
+            heroTag: "legend",
+            backgroundColor: Theme.of(context).primaryColor,
+            onPressed: () => setState(() => _showLegend = !_showLegend),
+            child: Icon(_showLegend ? Icons.close : Icons.info_outline,
+                color: Colors.white),
+          ),
         ],
       ),
     );
@@ -393,7 +434,7 @@ class _MapDataState extends State<MapData> {
             }
           },
           myLocationEnabled: true,
-          myLocationButtonEnabled: true,
+          myLocationButtonEnabled: false, // Disabled default button
           zoomControlsEnabled: true,
           compassEnabled: true,
           mapToolbarEnabled: true,
@@ -401,41 +442,41 @@ class _MapDataState extends State<MapData> {
     }
   }
 
-  // Builds the search bar widget
+  // Builds the search bar widget, wrapped in SafeArea
   Widget _buildSearchBar() {
-    return Positioned(
-      top: 50.h,
-      left: 15.w,
-      right: 15.w,
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(30.r),
-          boxShadow: const [
-            BoxShadow(
-                color: Colors.black26, blurRadius: 10, offset: Offset(0, 2))
-          ],
-        ),
-        child: TextField(
-          controller: _searchController,
-          textAlign: TextAlign.right,
-          decoration: InputDecoration(
-            hintText: 'ابحث عن مستشفى، صيدلية، مدينة...',
-            hintStyle: TextStyle(color: Colors.grey.shade500),
-            prefixIcon:
-                Icon(Icons.search, color: Theme.of(context).primaryColor),
-            suffixIcon: _searchController.text.isNotEmpty
-                ? IconButton(
-                    icon: const Icon(Icons.clear),
-                    onPressed: () {
-                      _searchController.clear();
-                      FocusScope.of(context).unfocus(); // Hide keyboard
-                    },
-                  )
-                : null,
-            border: InputBorder.none,
-            contentPadding:
-                EdgeInsets.symmetric(horizontal: 20.w, vertical: 14.h),
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: 15.w, vertical: 10.h),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(30.r),
+            boxShadow: const [
+              BoxShadow(
+                  color: Colors.black26, blurRadius: 10, offset: Offset(0, 2))
+            ],
+          ),
+          child: TextField(
+            controller: _searchController,
+            textAlign: TextAlign.right,
+            decoration: InputDecoration(
+              hintText: 'ابحث عن مستشفى، صيدلية، مدينة...',
+              hintStyle: TextStyle(color: Colors.grey.shade500),
+              prefixIcon:
+                  Icon(Icons.search, color: Theme.of(context).primaryColor),
+              suffixIcon: _searchController.text.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        _searchController.clear();
+                        FocusScope.of(context).unfocus(); // Hide keyboard
+                      },
+                    )
+                  : null,
+              border: InputBorder.none,
+              contentPadding:
+                  EdgeInsets.symmetric(horizontal: 20.w, vertical: 14.h),
+            ),
           ),
         ),
       ),
@@ -618,12 +659,10 @@ class _ApiHelper {
         return List<Map<String, dynamic>>.from(
             jsonDecode(utf8.decode(response.bodyBytes)));
       } else {
-        // On failure, return sample data
         return sampleData;
       }
     } catch (e) {
       debugPrint('Network error: $e. Using sample data.');
-      // On error, return sample data
       return sampleData;
     }
   }
@@ -637,7 +676,6 @@ class _BitmapGenerator {
     final Canvas canvas = Canvas(pictureRecorder);
     final double iconSize = size.toDouble();
 
-    // Shadow for selected marker
     if (isSelected) {
       final Paint shadowPaint = Paint()
         ..color = Colors.black.withOpacity(0.3)
@@ -646,14 +684,12 @@ class _BitmapGenerator {
           Offset(iconSize / 2, iconSize / 2), iconSize * 0.4, shadowPaint);
     }
 
-    // Background circle
     final Paint backgroundPaint = Paint()
       ..color = Colors.white
       ..style = PaintingStyle.fill;
     canvas.drawCircle(
         Offset(iconSize / 2, iconSize / 2), iconSize * 0.4, backgroundPaint);
 
-    // Border
     final Paint borderPaint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
@@ -661,7 +697,6 @@ class _BitmapGenerator {
     canvas.drawCircle(
         Offset(iconSize / 2, iconSize / 2), iconSize * 0.4, borderPaint);
 
-    // Icon
     final TextPainter textPainter =
         TextPainter(textDirection: TextDirection.ltr);
     textPainter.text = TextSpan(
@@ -708,10 +743,9 @@ class _LegendWidget extends StatelessWidget {
           color: Colors.white,
           borderRadius: BorderRadius.circular(16.r),
           boxShadow: const [
-            BoxShadow(color: Colors.black26, blurRadius: 10, spreadRadius: 2)
+            BoxShadow(color: Colors.black12, blurRadius: 15, spreadRadius: 5)
           ],
-          border: Border.all(
-              color: theme.colorScheme.primary.withOpacity(0.3), width: 1.w),
+          border: Border.all(color: Colors.grey.shade200, width: 1.w),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
