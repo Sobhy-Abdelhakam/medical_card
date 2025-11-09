@@ -110,7 +110,9 @@ class _MainAppState extends State<MainApp> {
             onTap: _onItemTapped,
             items: const [
               BottomNavigationBarItem(
-                icon: FaIcon(FontAwesomeIcons.mapLocation),
+                // icon: FaIcon(FontAwesomeIcons.mapLocation),
+                icon: Icon(Icons.map_outlined),
+                activeIcon: Icon(Icons.map),
                 label: 'الخريطة',
               ),
               BottomNavigationBarItem(
@@ -118,11 +120,14 @@ class _MainAppState extends State<MainApp> {
                 label: 'الشبكة الطبية',
               ),
               BottomNavigationBarItem(
-                icon: FaIcon(FontAwesomeIcons.handshake),
+                // icon: FaIcon(FontAwesomeIcons.handshake),
+                icon: Icon(Icons.handshake_outlined),
+                activeIcon: Icon(Icons.handshake),
                 label: 'كبار الشركاء',
               ),
               BottomNavigationBarItem(
                 icon: FaIcon(FontAwesomeIcons.comments),
+                activeIcon: FaIcon(FontAwesomeIcons.solidComments),
                 label: 'التواصل',
               ),
             ],

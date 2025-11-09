@@ -116,32 +116,34 @@ class _PartnersScreenState extends State<PartnersScreen> {
   Widget build(BuildContext context) {
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: Scaffold(
-        body: SafeArea(
-          child: _isLoading
-              ? _buildLoading()
-              : _errorMessage != null
-                  ? _buildError()
-                  : RefreshIndicator(
-                      onRefresh: _fetchAllData,
-                      child: CustomScrollView(
-                        controller: _scrollController,
-                        slivers: [
-                          _buildSectionTitle("كبار الشركاء"),
-                          _buildTopProvidersGrid(),
-                          _buildSectionTitle("ابحث في الشبكة الطبية"),
-                          _buildFiltersSection(),
-                          _buildProvidersSliverList(),
-                        ],
-                      ),
+      child: SafeArea(
+        bottom: false, // Prevent SafeArea from adding padding at the bottom
+        child: _isLoading
+            ? _buildLoading()
+            : _errorMessage != null
+                ? _buildError()
+                : RefreshIndicator(
+                    onRefresh: _fetchAllData,
+                    child: CustomScrollView(
+                      controller: _scrollController,
+                      slivers: [
+                        _buildSectionTitle("كبار الشركاء"),
+                        _buildTopProvidersGrid(),
+                        _buildSectionTitle("ابحث في الشبكة الطبية"),
+                        _buildFiltersSection(),
+                        _buildProvidersSliverList(),
+                        // Add padding at the bottom of the list to ensure it can scroll above the nav bar
+                        SliverToBoxAdapter(
+                          child: SizedBox(height: 100.h),
+                        ),
+                      ],
                     ),
-        ),
+                  ),
       ),
     );
   }
 
-  Widget _buildLoading() =>
-      const Center(child: CircularProgressIndicator());
+  Widget _buildLoading() => const Center(child: CircularProgressIndicator());
 
   Widget _buildError() => Center(
         child: Column(
@@ -170,7 +172,8 @@ class _PartnersScreenState extends State<PartnersScreen> {
   }
 
   Widget _buildTopProvidersGrid() {
-    if (_topProviders.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
+    if (_topProviders.isEmpty)
+      return const SliverToBoxAdapter(child: SizedBox.shrink());
 
     return SliverPadding(
       padding: EdgeInsets.symmetric(horizontal: 16.w),
@@ -192,7 +195,8 @@ class _PartnersScreenState extends State<PartnersScreen> {
               onTap: () {
                 _searchController.text = topProvider.nameArabic;
                 // Scroll to the list
-                final targetPosition = _scrollController.position.maxScrollExtent / 2;
+                final targetPosition =
+                    _scrollController.position.maxScrollExtent / 2;
                 _scrollController.animateTo(
                   targetPosition,
                   duration: const Duration(milliseconds: 500),
@@ -302,7 +306,8 @@ class _TopProviderCard extends StatelessWidget {
       onTap: onTap,
       child: Card(
         elevation: 4,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.r)),
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.r)),
         child: Padding(
           padding: EdgeInsets.all(12.w),
           child: Column(
@@ -323,7 +328,8 @@ class _TopProviderCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   provider.nameArabic,
-                  style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold),
+                  style:
+                      TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold),
                   textAlign: TextAlign.center,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
