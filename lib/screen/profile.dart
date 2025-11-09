@@ -151,91 +151,69 @@ class Profile extends StatelessWidget {
 
           return SingleChildScrollView(
             child: Center(
-              child: Container(
-                constraints: BoxConstraints(
-                  maxWidth: isSmallScreen ? double.infinity : 500,
-                ),
-                padding: EdgeInsets.symmetric(
-                  horizontal: isSmallScreen ? 10.w : 20.w,
-                  vertical: 20.h,
-                ),
-                child: Card(
-                  elevation: 16,
-                  shadowColor: Colors.black38,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(24),
+              child: Padding(
+                padding: EdgeInsets.only(bottom: 50.h),
+                child: Container(
+                  constraints: BoxConstraints(
+                    maxWidth: isSmallScreen ? double.infinity : 500,
                   ),
-                  child: Container(
-                    decoration: BoxDecoration(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isSmallScreen ? 10.w : 20.w,
+                    vertical: 20.h,
+                  ),
+                  child: Card(
+                    elevation: 16,
+                    shadowColor: Colors.black38,
+                    shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(24),
-                      color: Colors.white,
                     ),
-                    padding: EdgeInsets.all(isSmallScreen ? 20.w : 30.w),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          padding: EdgeInsets.all(8.w),
-                          decoration: BoxDecoration(
-                            color: Colors.blue.withValues(alpha: 0.1),
-                            shape: BoxShape.circle,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(24),
+                        color: Colors.white,
+                      ),
+                      padding: EdgeInsets.all(isSmallScreen ? 20.w : 30.w),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: EdgeInsets.all(8.w),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.withValues(alpha: 0.1),
+                              shape: BoxShape.circle,
+                            ),
+                            child: CircleAvatar(
+                              radius: isSmallScreen ? 55 : 65,
+                              backgroundImage:
+                                  const AssetImage('assets/images/logo.jpg'),
+                            ),
                           ),
-                          child: CircleAvatar(
-                            radius: isSmallScreen ? 55 : 65,
-                            backgroundImage:
-                                const AssetImage('assets/images/logo.jpg'),
+                          SizedBox(height: isSmallScreen ? 20.h : 25.h),
+                          Text(
+                            'شبكة طبية متكاملة تغطي كل المحافظات',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: isSmallScreen ? 17.sp : 19.sp,
+                              color: Colors.blue[800],
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
-                        ),
-                        SizedBox(height: isSmallScreen ? 20.h : 25.h),
-                        Text(
-                          'شبكة طبية متكاملة تغطي كل المحافظات',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: isSmallScreen ? 17.sp : 19.sp,
-                            color: Colors.blue[800],
-                            fontWeight: FontWeight.w600,
+                          SizedBox(height: isSmallScreen ? 8.h : 12.h),
+                          Text(
+                            'نحن هنا لمساعدتك في العثور على أفضل الخدمات الطبية',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: isSmallScreen ? 13.sp : 14.sp,
+                              color: Colors.grey[600],
+                            ),
                           ),
-                        ),
-                        SizedBox(height: isSmallScreen ? 8.h : 12.h),
-                        Text(
-                          'نحن هنا لمساعدتك في العثور على أفضل الخدمات الطبية',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: isSmallScreen ? 13.sp : 14.sp,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                        SizedBox(height: isSmallScreen ? 25.h : 35.h),
+                          SizedBox(height: isSmallScreen ? 25.h : 35.h),
 
-                        // Contact buttons with enhanced design
-                        isSmallScreen
-                            ? Column(
-                                children: [
-                                  _buildEnhancedContactButton(
-                                    icon: FontAwesomeIcons.whatsapp,
-                                    label: 'واتساب',
-                                    subtitle: 'تواصل معنا عبر واتساب',
-                                    color: Colors.green,
-                                    onPressed: () =>
-                                        _openWhatsApp('201111768519'),
-                                    isSmall: isSmallScreen,
-                                  ),
-                                  SizedBox(height: 12.h),
-                                  _buildEnhancedContactButton(
-                                    icon: FontAwesomeIcons.phone,
-                                    label: 'اتصل بنا',
-                                    subtitle: 'اتصل بنا مباشرة',
-                                    color: Colors.blue,
-                                    onPressed: () =>
-                                        _showContactDialog(context),
-                                    isSmall: isSmallScreen,
-                                  ),
-                                ],
-                              )
-                            : Row(
-                                children: [
-                                  Expanded(
-                                    child: _buildEnhancedContactButton(
+                          // Contact buttons with enhanced design
+                          isSmallScreen
+                              ? Column(
+                                  children: [
+                                    _buildEnhancedContactButton(
                                       icon: FontAwesomeIcons.whatsapp,
                                       label: 'واتساب',
                                       subtitle: 'تواصل معنا عبر واتساب',
@@ -244,10 +222,8 @@ class Profile extends StatelessWidget {
                                           _openWhatsApp('201111768519'),
                                       isSmall: isSmallScreen,
                                     ),
-                                  ),
-                                  SizedBox(width: 16.w),
-                                  Expanded(
-                                    child: _buildEnhancedContactButton(
+                                    SizedBox(height: 12.h),
+                                    _buildEnhancedContactButton(
                                       icon: FontAwesomeIcons.phone,
                                       label: 'اتصل بنا',
                                       subtitle: 'اتصل بنا مباشرة',
@@ -256,64 +232,92 @@ class Profile extends StatelessWidget {
                                           _showContactDialog(context),
                                       isSmall: isSmallScreen,
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                )
+                              : Row(
+                                  children: [
+                                    Expanded(
+                                      child: _buildEnhancedContactButton(
+                                        icon: FontAwesomeIcons.whatsapp,
+                                        label: 'واتساب',
+                                        subtitle: 'تواصل معنا عبر واتساب',
+                                        color: Colors.green,
+                                        onPressed: () =>
+                                            _openWhatsApp('201111768519'),
+                                        isSmall: isSmallScreen,
+                                      ),
+                                    ),
+                                    SizedBox(width: 16.w),
+                                    Expanded(
+                                      child: _buildEnhancedContactButton(
+                                        icon: FontAwesomeIcons.phone,
+                                        label: 'اتصل بنا',
+                                        subtitle: 'اتصل بنا مباشرة',
+                                        color: Colors.blue,
+                                        onPressed: () =>
+                                            _showContactDialog(context),
+                                        isSmall: isSmallScreen,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+
+                          SizedBox(height: isSmallScreen ? 25.h : 35.h),
+
+                          // Social media section with enhanced design
+                          Container(
+                            padding: EdgeInsets.all(16.w),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.withValues(alpha: 0.05),
+                              borderRadius: BorderRadius.circular(16.w),
+                              border: Border.all(
+                                color: Colors.grey.withValues(alpha: 0.2),
+                                width: 1.w,
                               ),
-
-                        SizedBox(height: isSmallScreen ? 25.h : 35.h),
-
-                        // Social media section with enhanced design
-                        Container(
-                          padding: EdgeInsets.all(16.w),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.withValues(alpha: 0.05),
-                            borderRadius: BorderRadius.circular(16.w),
-                            border: Border.all(
-                              color: Colors.grey.withValues(alpha: 0.2),
-                              width: 1.w,
+                            ),
+                            child: Column(
+                              children: [
+                                Text(
+                                  'تابعنا على وسائل التواصل الاجتماعي',
+                                  style: TextStyle(
+                                    fontSize: isSmallScreen ? 14.sp : 16.sp,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey[700],
+                                  ),
+                                ),
+                                SizedBox(height: 16.h),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceEvenly,
+                                  children: [
+                                    _buildEnhancedSocialIcon(
+                                      icon: FontAwesomeIcons.facebook,
+                                      color: Colors.blue,
+                                      url:
+                                          'https://www.facebook.com/share/1KvhiRG6RB/',
+                                      label: 'فيسبوك',
+                                    ),
+                                    _buildEnhancedSocialIcon(
+                                      icon: FontAwesomeIcons.instagram,
+                                      color: Colors.purple,
+                                      url:
+                                          'https://www.instagram.com/euromedicalcard',
+                                      label: 'انستغرام',
+                                    ),
+                                    _buildEnhancedSocialIcon(
+                                      icon: FontAwesomeIcons.youtube,
+                                      color: Colors.red,
+                                      url:
+                                          'https://www.youtube.com/@euroassist',
+                                      label: 'يوتيوب',
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
                           ),
-                          child: Column(
-                            children: [
-                              Text(
-                                'تابعنا على وسائل التواصل الاجتماعي',
-                                style: TextStyle(
-                                  fontSize: isSmallScreen ? 14.sp : 16.sp,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.grey[700],
-                                ),
-                              ),
-                              SizedBox(height: 16.h),
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceEvenly,
-                                children: [
-                                  _buildEnhancedSocialIcon(
-                                    icon: FontAwesomeIcons.facebook,
-                                    color: Colors.blue,
-                                    url:
-                                        'https://www.facebook.com/share/1KvhiRG6RB/',
-                                    label: 'فيسبوك',
-                                  ),
-                                  _buildEnhancedSocialIcon(
-                                    icon: FontAwesomeIcons.instagram,
-                                    color: Colors.purple,
-                                    url:
-                                        'https://www.instagram.com/euromedicalcard',
-                                    label: 'انستغرام',
-                                  ),
-                                  _buildEnhancedSocialIcon(
-                                    icon: FontAwesomeIcons.youtube,
-                                    color: Colors.red,
-                                    url: 'https://www.youtube.com/@euroassist',
-                                    label: 'يوتيوب',
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
