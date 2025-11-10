@@ -36,7 +36,6 @@ class _MapDataState extends State<MapData> {
   GoogleMapController? _mapController;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   final TextEditingController _searchController = TextEditingController();
-  Timer? _debounce;
   String? _mapStyle;
 
   // --- UI State ---
@@ -69,15 +68,15 @@ class _MapDataState extends State<MapData> {
   void initState() {
     super.initState();
     _initialize();
-    _searchController.addListener(_onSearchChanged);
+    _searchController.addListener(_onSearchTextChanged);
   }
 
   @override
   void dispose() {
+    _searchController.removeListener(_onSearchTextChanged);
     _connectivitySubscription?.cancel();
     _mapController?.dispose();
     _searchController.dispose();
-    _debounce?.cancel();
     super.dispose();
   }
 
@@ -143,9 +142,13 @@ class _MapDataState extends State<MapData> {
     }
   }
 
-  void _onSearchChanged() {
-    if (_debounce?.isActive ?? false) _debounce!.cancel();
-    _debounce = Timer(const Duration(milliseconds: 500), _applyFilters);
+  void _performSearch() {
+    FocusScope.of(context).unfocus();
+    _applyFilters();
+  }
+
+  void _onSearchTextChanged() {
+    setState(() {});
   }
 
   void _applyFilters() {
@@ -161,13 +164,41 @@ class _MapDataState extends State<MapData> {
 
     if (query.length >= 3) {
       filtered = filtered.where((p) {
-        final name = (p['name'] ?? '').toLowerCase();
-        final city = (p['city'] ?? '').toLowerCase();
-        final type = (p['type'] ?? '').toLowerCase();
-        return name.contains(query) ||
-            city.contains(query) ||
-            type.contains(query);
+        final name = (p['name'] ?? '').toString().toLowerCase();
+        final city = (p['city'] ?? '').toString().toLowerCase();
+        final district = (p['district'] ?? '').toString().toLowerCase();
+        final address = (p['address'] ?? '').toString().toLowerCase();
+        final phone = (p['phone'] ?? '').toString().toLowerCase();
+        final type = (p['type'] ?? '').toString().toLowerCase();
+
+        int? priority;
+
+        if (name.contains(query)) {
+          priority = 0;
+        } else if (city.contains(query)) {
+          priority = 1;
+        } else if (district.contains(query)) {
+          priority = 2;
+        } else if (address.contains(query)) {
+          priority = 3;
+        } else if (phone.contains(query)) {
+          priority = 4;
+        } else if (type.contains(query)) {
+          priority = 5;
+        }
+
+        if (priority != null) {
+          p['_matchPriority'] = priority;
+          return true;
+        }
+
+        p.remove('_matchPriority');
+        return false;
       }).toList();
+    } else {
+      for (final provider in filtered) {
+        provider.remove('_matchPriority');
+      }
     }
 
     if (_currentLocation != null) {
@@ -184,8 +215,24 @@ class _MapDataState extends State<MapData> {
           provider['distance'] = double.maxFinite;
         }
       }
-      filtered.sort((a, b) =>
-          (a['distance'] as double).compareTo(b['distance'] as double));
+    }
+
+    filtered.sort((a, b) {
+      final priorityA = (a['_matchPriority'] ?? 999) as int;
+      final priorityB = (b['_matchPriority'] ?? 999) as int;
+      if (priorityA != priorityB) {
+        return priorityA.compareTo(priorityB);
+      }
+
+      final distanceA = (a['distance'] ?? double.maxFinite) as double;
+      final distanceB = (b['distance'] ?? double.maxFinite) as double;
+      return distanceA.compareTo(distanceB);
+    });
+
+    if (query.length < 3) {
+      for (final provider in filtered) {
+        provider.remove('_matchPriority');
+      }
     }
 
     setState(() => _filteredProviders = filtered);
@@ -267,16 +314,22 @@ class _MapDataState extends State<MapData> {
       child: TextField(
         controller: _searchController,
         textAlign: TextAlign.right,
+        textInputAction: TextInputAction.search,
+        onSubmitted: (_) => _performSearch(),
         decoration: InputDecoration(
           hintText: 'ابحث عن مستشفى، صيدلية، مدينة...',
           hintStyle: TextStyle(color: Colors.grey.shade500),
-          prefixIcon: Icon(Icons.search, color: Theme.of(context).primaryColor),
+          prefixIcon: IconButton(
+            icon: Icon(Icons.search, color: Theme.of(context).primaryColor),
+            onPressed: _performSearch,
+          ),
           suffixIcon: _searchController.text.isNotEmpty
               ? IconButton(
                   icon: const Icon(Icons.clear),
                   onPressed: () {
                     _searchController.clear();
                     FocusScope.of(context).unfocus();
+                    _applyFilters();
                   },
                 )
               : null,

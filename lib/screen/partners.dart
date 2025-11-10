@@ -157,7 +157,7 @@ class _PartnersScreenState extends State<PartnersScreen> {
                     ),
                     settings: RouteSettings(
                       arguments: {
-                        'search': topProvider.nameArabic,
+                        'searchName': topProvider.nameArabic,
                         'searchOnly': true,
                         'type': topProvider.typeArabic,
                       },
