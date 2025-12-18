@@ -29,115 +29,279 @@ class Profile extends StatelessWidget {
     }
   }
 
+  // Future<void> _openWhatsApp(String phoneNumber) async {
+  //   // Ensure phone number is properly formatted with country code
+  //   final formattedNumber = phoneNumber.startsWith('+')
+  //       ? phoneNumber.substring(1)
+  //       : phoneNumber.startsWith('0')
+  //           ? '20${phoneNumber.substring(1)}'
+  //           : phoneNumber;
+  //   final Uri whatsappUri = Uri.parse("whatsapp://send?phone=$formattedNumber");
+
+  //   if (await canLaunchUrl(whatsappUri)) {
+  //     await launchUrl(whatsappUri, mode: LaunchMode.externalApplication);
+  //   } else {
+  //     // Fallback to web version if app is not installed
+  //     final webUri = Uri.parse("https://wa.me/$formattedNumber");
+  //     if (await canLaunchUrl(webUri)) {
+  //       await launchUrl(webUri, mode: LaunchMode.externalApplication);
+  //     } else {
+  //       debugPrint('لا يمكن فتح واتساب');
+  //     }
+  //   }
+  // }
   Future<void> _openWhatsApp(String phoneNumber) async {
-    final Uri whatsappUri = Uri.parse("https://wa.me/$phoneNumber");
-    if (await canLaunchUrl(whatsappUri)) {
-      await launchUrl(whatsappUri, mode: LaunchMode.externalApplication);
+    final formattedNumber = _formatPhoneNumber(phoneNumber);
+    final Uri whatsappUri = Uri.parse("whatsapp://send?phone=$formattedNumber");
+
+    try {
+      if (await canLaunchUrl(whatsappUri)) {
+        await launchUrl(whatsappUri, mode: LaunchMode.externalApplication);
+      } else {
+        // Fallback to web
+        final Uri webUri = Uri.parse("https://wa.me/$formattedNumber");
+        if (await canLaunchUrl(webUri)) {
+          await launchUrl(webUri, mode: LaunchMode.externalApplication);
+        } else {
+          debugPrint('⚠️ لا يمكن فتح واتساب أو المتصفح.');
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ خطأ أثناء محاولة فتح واتساب: $e');
+    }
+  }
+
+  String _formatPhoneNumber(String number) {
+    number = number.replaceAll(
+        RegExp(r'[^0-9+]'), ''); // Remove spaces, dashes, etc.
+    if (number.startsWith('+')) {
+      return number.substring(1); // remove '+'
+    } else if (number.startsWith('00')) {
+      return number.substring(2);
+    } else if (number.startsWith('0')) {
+      // Replace with your country code (example: Egypt = 20)
+      return '20${number.substring(1)}';
     } else {
-      debugPrint('لا يمكن فتح واتساب');
+      return number;
     }
   }
 
   void _showContactDialog(BuildContext context) {
     final isLandscape =
         MediaQuery.of(context).orientation == Orientation.landscape;
+    final theme = Theme.of(context);
 
     showDialog(
       context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black54,
       builder: (BuildContext context) {
         return Dialog(
+          insetPadding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 24.h),
+          backgroundColor: Colors.transparent,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20.w),
           ),
-          child: Container(
-            padding: EdgeInsets.all(24.w),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20.w),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  padding: EdgeInsets.all(16.w),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withValues(alpha: 0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.contact_phone,
-                    size: isLandscape ? 32.w : 40.w,
-                    color: Colors.blue,
-                  ),
+          child: TweenAnimationBuilder<double>(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOutCubic,
+            tween: Tween(begin: 0.0, end: 1.0),
+            builder: (context, value, child) {
+              return Transform.scale(
+                scale: 0.5 + (0.5 * value),
+                child: Opacity(
+                  opacity: value,
+                  child: child,
                 ),
-                SizedBox(height: 16.h),
-                Text(
-                  'اختر طريقة التواصل',
-                  style: TextStyle(
-                    fontSize: isLandscape ? 18.sp : 20.sp,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.blue,
+              );
+            },
+            child: Container(
+              constraints: BoxConstraints(
+                maxWidth: isLandscape ? 400.w : 320.w,
+              ),
+              padding: EdgeInsets.all(24.w),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20.w),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 20,
+                    spreadRadius: 5,
                   ),
-                ),
-                SizedBox(height: 24.h),
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.of(context).pop();
-                          _makePhoneCall('+20233011444');
-                        },
-                        icon: FaIcon(FontAwesomeIcons.phone, size: 16.w),
-                        label: Text('اتصال', style: TextStyle(fontSize: 14.sp)),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          padding: EdgeInsets.symmetric(vertical: 12.h),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12.w),
-                          ),
-                        ),
-                      ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: EdgeInsets.all(16.w),
+                    decoration: BoxDecoration(
+                      color: theme.primaryColor.withOpacity(0.1),
+                      shape: BoxShape.circle,
                     ),
-                    SizedBox(width: 12.w),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.of(context).pop();
-                          _makePhoneCall('+201111768519');
-                        },
-                        icon: FaIcon(FontAwesomeIcons.phone, size: 16.w),
-                        label: Text('اتصال', style: TextStyle(fontSize: 14.sp)),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          padding: EdgeInsets.symmetric(vertical: 12.h),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12.w),
-                          ),
-                        ),
-                      ),
+                    child: Icon(
+                      Icons.contact_phone_rounded,
+                      size: isLandscape ? 32.w : 40.w,
+                      color: theme.primaryColor,
                     ),
-                  ],
-                ),
-                SizedBox(height: 16.h),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
+                  ),
+                  SizedBox(height: 16.h),
+                  Text(
+                    'اختر طريقة التواصل',
+                    style: TextStyle(
+                      fontSize: isLandscape ? 18.sp : 20.sp,
+                      fontWeight: FontWeight.bold,
+                      color: theme.primaryColor,
+                    ),
+                  ),
+                  SizedBox(height: 8.h),
+                  Text(
+                    'يمكنك الاتصال بنا على أي من الأرقام التالية',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13.sp,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                  SizedBox(height: 24.h),
+                  _buildContactButton(
+                    context: context,
+                    icon: FontAwesomeIcons.phone,
+                    label: 'الخط الساخن',
+                    phone: '+20233001122',
+                    color: Colors.green.shade600,
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      _makePhoneCall('+20233001122');
+                    },
+                  ),
+                  SizedBox(height: 12.h),
+                  _buildContactButton(
+                    context: context,
+                    icon: FontAwesomeIcons.mobile,
+                    label: 'رقم الموبايل',
+                    phone: '+201111768519',
+                    color: Colors.blue.shade600,
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      _makePhoneCall('+201111768519');
+                    },
+                  ),
+                  SizedBox(height: 24.h),
+                  TextButton(
                     onPressed: () => Navigator.of(context).pop(),
-                    style: OutlinedButton.styleFrom(
-                      padding: EdgeInsets.symmetric(vertical: 12.h),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.grey[600],
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 24.w,
+                        vertical: 12.h,
+                      ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12.w),
                       ),
                     ),
-                    child: Text('إلغاء', style: TextStyle(fontSize: 14.sp)),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.close, size: 18.w),
+                        SizedBox(width: 8.w),
+                        Text(
+                          'إغلاق',
+                          style: TextStyle(fontSize: 14.sp),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         );
       },
+    );
+  }
+
+  Widget _buildContactButton({
+    required BuildContext context,
+    required IconData icon,
+    required String label,
+    required String phone,
+    required Color color,
+    required VoidCallback onPressed,
+  }) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12.w),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.2),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Material(
+        color: color,
+        borderRadius: BorderRadius.circular(12.w),
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(12.w),
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: 20.w,
+              vertical: 16.h,
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: EdgeInsets.all(8.w),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: FaIcon(
+                    icon,
+                    size: 16.w,
+                    color: Colors.white,
+                  ),
+                ),
+                SizedBox(width: 16.w),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        label,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 15.sp,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      SizedBox(height: 4.h),
+                      Text(
+                        phone,
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.9),
+                          fontSize: 13.sp,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  color: Colors.white.withOpacity(0.7),
+                  size: 16.w,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -194,7 +358,7 @@ class Profile extends StatelessWidget {
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: isSmallScreen ? 17.sp : 19.sp,
-                              color: Colors.blue[800],
+                              color: Theme.of(context).colorScheme.primary,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -213,24 +377,33 @@ class Profile extends StatelessWidget {
                           isSmallScreen
                               ? Column(
                                   children: [
-                                    _buildEnhancedContactButton(
-                                      icon: FontAwesomeIcons.whatsapp,
-                                      label: 'واتساب',
-                                      subtitle: 'تواصل معنا عبر واتساب',
-                                      color: Colors.green,
-                                      onPressed: () =>
-                                          _openWhatsApp('201111768519'),
-                                      isSmall: isSmallScreen,
+                                    // Force a consistent height so both buttons look identical
+                                    SizedBox(
+                                      height: 72.h,
+                                      width: double.infinity,
+                                      child: _buildEnhancedContactButton(
+                                        icon: FontAwesomeIcons.whatsapp,
+                                        label: 'واتساب',
+                                        subtitle: 'تواصل معنا عبر واتساب',
+                                        color: Colors.green,
+                                        onPressed: () =>
+                                            _openWhatsApp('201111768519'),
+                                        isSmall: isSmallScreen,
+                                      ),
                                     ),
                                     SizedBox(height: 12.h),
-                                    _buildEnhancedContactButton(
-                                      icon: FontAwesomeIcons.phone,
-                                      label: 'اتصل بنا',
-                                      subtitle: 'اتصل بنا مباشرة',
-                                      color: Colors.blue,
-                                      onPressed: () =>
-                                          _showContactDialog(context),
-                                      isSmall: isSmallScreen,
+                                    SizedBox(
+                                      height: 72.h,
+                                      width: double.infinity,
+                                      child: _buildEnhancedContactButton(
+                                        icon: FontAwesomeIcons.phone,
+                                        label: 'اتصل بنا',
+                                        subtitle: 'اتصل بنا مباشرة',
+                                        color: Colors.blue,
+                                        onPressed: () =>
+                                            _showContactDialog(context),
+                                        isSmall: isSmallScreen,
+                                      ),
                                     ),
                                   ],
                                 )
@@ -354,40 +527,88 @@ class Profile extends StatelessWidget {
           backgroundColor: color,
           foregroundColor: Colors.white,
           elevation: 0,
+          // Ensure accessible hit target and consistent sizing
+          minimumSize: Size(double.infinity, isSmall ? 64.h : 56.h),
           padding: EdgeInsets.symmetric(
             horizontal: isSmall ? 16.w : 20.w,
-            vertical: isSmall ? 16.h : 20.h,
+            vertical: isSmall ? 8.h : 14.h,
           ),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16.w),
           ),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            FaIcon(
-              icon,
-              size: isSmall ? 20.w : 24.w,
-            ),
-            SizedBox(height: 8.h),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: isSmall ? 14.sp : 16.sp,
-                fontWeight: FontWeight.bold,
+        // Use a compact horizontal layout on small screens for balance
+        child: isSmall
+            ? Row(
+                children: [
+                  Container(
+                    width: 44.w,
+                    height: 44.w,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: FaIcon(
+                        icon,
+                        size: 20.w,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: 12.w),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          label,
+                          style: TextStyle(
+                            fontSize: 15.sp,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                        SizedBox(height: 4.h),
+                        Text(
+                          subtitle,
+                          style: TextStyle(
+                            fontSize: 12.sp,
+                            color: Colors.white.withOpacity(0.95),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              )
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  FaIcon(
+                    icon,
+                    size: isSmall ? 20.w : 24.w,
+                  ),
+                  SizedBox(height: 8.h),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: isSmall ? 14.sp : 16.sp,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  SizedBox(height: 4.h),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: isSmall ? 11.sp : 12.sp,
+                      color: Colors.white.withValues(alpha: 0.9),
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
               ),
-            ),
-            SizedBox(height: 4.h),
-            Text(
-              subtitle,
-              style: TextStyle(
-                fontSize: isSmall ? 11.sp : 12.sp,
-                color: Colors.white.withValues(alpha: 0.9),
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
       ),
     );
   }

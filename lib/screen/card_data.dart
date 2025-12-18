@@ -29,7 +29,7 @@ class CategoryGrid extends StatefulWidget {
 class _CategoryGridState extends State<CategoryGrid> {
   final List<Map<String, String>> categories = [
     {'title': 'المستشفيات', 'image': 'hospital.jpg', 'item': 'مستشفى'},
-    {'title': 'مراكز الأشعة', 'image': 'scan.jpg', 'item': 'مراكز الأشعة'},
+    {'title': 'مراكز الأشعة', 'image': 'scan.jpg', 'item': 'مركز أشعة'},
     {
       'title': 'معامل التحاليل',
       'image': 'medicaltests.jpg',

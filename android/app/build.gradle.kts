@@ -15,7 +15,15 @@ val localProps = Properties().apply {
         FileInputStream(propsFile).use { load(it) }
     }
 }
+
 val mapsApiKey: String = (localProps.getProperty("MAPS_API_KEY") ?: System.getenv("MAPS_API_KEY") ?: "").trim()
+
+// --- Load signing properties from local.properties (recommended) ---
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+}
 
 android {
     namespace = "com.example.medical_card"
@@ -32,10 +40,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.euromedicalcard.app"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -45,21 +50,32 @@ android {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
 
-        // Inject Google Maps API key into manifest
         manifestPlaceholders["GOOGLE_MAPS_API_KEY"] = mapsApiKey
     }
-    packagingOptions {
-        jniLibs {
-            useLegacyPackaging = false
-        }
+
+    signingConfigs {
+    create("release") {
+        storeFile = file(keystoreProperties["storeFile"] ?: "new-upload-key.jks")
+        storePassword = keystoreProperties["storePassword"]?.toString() ?: "YOUR_STORE_PASSWORD"
+        keyAlias = keystoreProperties["keyAlias"]?.toString() ?: "upload"
+        keyPassword = keystoreProperties["keyPassword"]?.toString() ?: "YOUR_KEY_PASSWORD"
     }
+    }
+
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            isMinifyEnabled = false
+            isShrinkResources = false
+            signingConfig = signingConfigs.getByName("release")
         }
+        debug {
+            signingConfig = signingConfigs.getByName("release") // optional: use same key for debug builds
+        }
+    }
+
+    packagingOptions {
+        jniLibs.useLegacyPackaging = false
     }
 }
 
