@@ -118,18 +118,22 @@ class _MapDataState extends State<MapData> {
     setState(() => _status = _MapStatus.loading);
 
     try {
-      final results = await Future.wait([
-        _LocationService.getCurrentLocation(context),
-        _ApiHelper.fetchProviders(_providersUrl, _sampleData),
-      ]);
+      // Fetch providers - this is required for the map to work
+      final providers = await _ApiHelper.fetchProviders(_providersUrl, _sampleData);
+
+      // Get location safely (will never throw, may return null)
+      final location = await _LocationService.getCurrentLocation(context);
+
       if (!mounted) return;
 
       setState(() {
-        _currentLocation = results[0] as LatLng?;
-        _allProviders = results[1] as List<Map<String, dynamic>>;
+        _allProviders = providers;
+        _currentLocation = location; // Can be null - that's OK
         _applyFilters();
         _status = _MapStatus.success;
       });
+
+      // Only animate if we have location
       if (_currentLocation != null) {
         _animateToLocation(_currentLocation!, zoom: 14.0);
       }
@@ -137,7 +141,7 @@ class _MapDataState extends State<MapData> {
       if (!mounted) return;
       setState(() {
         _status = _MapStatus.failure;
-        _errorMessage = e.toString();
+        _errorMessage = "حدث خطأ في تحميل البيانات. يرجى المحاولة مرة أخرى.";
       });
     }
   }
@@ -567,25 +571,53 @@ class _MapDataState extends State<MapData> {
   }
 
   Future<void> _goToMyLocation() async {
-    try {
-      final position = await _LocationService.getCurrentLocation(context);
-      if (!mounted) return;
+    // Show loading indicator
+    if (!mounted) return;
 
-      if (position != null) {
-        setState(() {
-          _currentLocation = position;
-        });
-        _animateToLocation(position, zoom: 14.0);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString(), textAlign: TextAlign.right),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            Text('جاري تحديد موقعك...', textAlign: TextAlign.right),
+            SizedBox(width: 12),
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ),
+        duration: Duration(seconds: 3),
+      ),
+    );
+
+    // Get location safely - will NEVER throw
+    final position = await _LocationService.getCurrentLocation(context);
+
+    if (!mounted) return;
+
+    // Dismiss loading snackbar
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+    if (position != null) {
+      setState(() {
+        _currentLocation = position;
+      });
+      _animateToLocation(position, zoom: 14.0);
+    } else {
+      // Location unavailable - show friendly message
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تعذر تحديد موقعك. حاول مرة أخرى.',
+              textAlign: TextAlign.right),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 3),
+        ),
+      );
     }
   }
 
@@ -741,77 +773,125 @@ class _MapDataState extends State<MapData> {
 }
 
 // --- Helper Classes & Widgets ---
+
+/// Safe location service that NEVER throws exceptions.
+/// Returns null if location cannot be obtained for any reason.
+/// This is critical for iPad crash prevention.
 class _LocationService {
+  /// Gets current location safely. Returns null if unavailable.
+  /// NEVER throws - always returns a value or null.
   static Future<LatLng?> getCurrentLocation(BuildContext context) async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      await _showLocationServiceDialog(context);
-      throw "خدمة الموقع غير مفعلة.";
-    }
-
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        throw "تم رفض إذن الوصول للموقع.";
-      }
-    }
-
-    if (permission == LocationPermission.deniedForever) {
-      await _showPermissionDialog(context);
-      throw "تم رفض إذن الموقع بشكل دائم.";
-    }
-
     try {
-      Position position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high);
+      // Check if location services are enabled with timeout
+      final bool serviceEnabled = await Geolocator.isLocationServiceEnabled()
+          .timeout(const Duration(seconds: 5), onTimeout: () => false);
+
+      if (!serviceEnabled) {
+        if (context.mounted) {
+          _showLocationServiceDialog(context);
+        }
+        return null; // Return null, don't throw
+      }
+
+      // Check permission status with timeout
+      LocationPermission permission = await Geolocator.checkPermission()
+          .timeout(const Duration(seconds: 5),
+              onTimeout: () => LocationPermission.denied);
+
+      // Request permission if denied
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission().timeout(
+            const Duration(seconds: 30),
+            onTimeout: () => LocationPermission.denied);
+
+        if (permission == LocationPermission.denied) {
+          // User denied - show snackbar, don't crash
+          if (context.mounted) {
+            _showPermissionDeniedSnackbar(context);
+          }
+          return null;
+        }
+      }
+
+      // Handle permanently denied
+      if (permission == LocationPermission.deniedForever) {
+        if (context.mounted) {
+          _showPermissionPermanentlyDeniedDialog(context);
+        }
+        return null;
+      }
+
+      // Get position with timeout - critical for iPad
+      final Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      ).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => throw TimeoutException('Location timeout'),
+      );
+
       return LatLng(position.latitude, position.longitude);
     } catch (e) {
-      throw "فشل في تحديد الموقع الحالي.";
+      // Catch ALL exceptions - log and return null
+      debugPrint('Location service error: $e');
+      return null; // Never crash
     }
   }
 
-  static Future<void> _showLocationServiceDialog(BuildContext context) async {
-    return showDialog(
+  static void _showPermissionDeniedSnackbar(BuildContext context) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content:
+            Text('تم رفض إذن الموقع. لن نتمكن من تحديد موقعك.', textAlign: TextAlign.right),
+        backgroundColor: Colors.orange,
+        duration: Duration(seconds: 3),
+      ),
+    );
+  }
+
+  static void _showLocationServiceDialog(BuildContext context) {
+    showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         title: const Text('خدمة الموقع', textAlign: TextAlign.right),
-        content: const Text(
-            'خدمة الموقع غير مفعلة. هل تريد فتح الإعدادات لتفعيلها؟',
+        content: const Text('خدمة الموقع غير مفعلة. هل تريد فتح الإعدادات؟',
             textAlign: TextAlign.right),
         actions: [
           TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('إلغاء')),
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('لاحقاً'),
+          ),
           TextButton(
-              onPressed: () async {
-                await Geolocator.openLocationSettings();
-                Navigator.of(context).pop();
-              },
-              child: const Text('فتح الإعدادات')),
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              await Geolocator.openLocationSettings();
+            },
+            child: const Text('فتح الإعدادات'),
+          ),
         ],
       ),
     );
   }
 
-  static Future<void> _showPermissionDialog(BuildContext context) async {
-    return showDialog(
+  static void _showPermissionPermanentlyDeniedDialog(BuildContext context) {
+    showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('إذن الموقع', textAlign: TextAlign.right),
+      builder: (ctx) => AlertDialog(
+        title: const Text('إذن الموقع مطلوب', textAlign: TextAlign.right),
         content: const Text(
-            'تم رفض إذن الوصول للموقع بشكل دائم. يرجى تفعيله من إعدادات التطبيق.',
+            'تم رفض إذن الموقع. يمكنك تفعيله من إعدادات التطبيق.',
             textAlign: TextAlign.right),
         actions: [
           TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('إلغاء')),
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('لاحقاً'),
+          ),
           TextButton(
-              onPressed: () async {
-                await Geolocator.openAppSettings();
-                Navigator.of(context).pop();
-              },
-              child: const Text('فتح الإعدادات')),
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              await Geolocator.openAppSettings();
+            },
+            child: const Text('فتح الإعدادات'),
+          ),
         ],
       ),
     );
