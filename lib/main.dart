@@ -1,11 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:euro_medical_card/screen/splash.dart';
 
-void main() => runApp(const MyApp());
+import 'di/injection_container.dart';
+import 'features/app/presentation/pages/main_app_shell.dart';
+import 'features/intro/presentation/pages/splash_page.dart';
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize dependency injection
+  await initDependencies();
+  
+  runApp(const EuroMedicalCardApp());
+}
+
+/// Root application widget
+class EuroMedicalCardApp extends StatelessWidget {
+  const EuroMedicalCardApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -16,12 +27,12 @@ class MyApp extends StatelessWidget {
       builder: (context, child) {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
-          theme: ThemeData(
-            useMaterial3: true,
-            colorScheme: ColorScheme.fromSwatch(primarySwatch: Colors.red)
-                .copyWith(primary: Color(0xfff70403)),
-          ),
-          home: const SplashScreen(),
+          title: 'Euro Medical Card',
+          theme: _buildTheme(),
+          home: const SplashPage(),
+          routes: {
+            '/main': (context) => const MainAppShell(),
+          },
           localeResolutionCallback: (locale, supportedLocales) {
             for (var supportedLocale in supportedLocales) {
               if (supportedLocale.languageCode == locale?.languageCode) {
@@ -32,6 +43,37 @@ class MyApp extends StatelessWidget {
           },
         );
       },
+    );
+  }
+
+  ThemeData _buildTheme() {
+    const primaryColor = Color(0xfff70403);
+    
+    return ThemeData(
+      useMaterial3: true,
+      colorScheme: ColorScheme.fromSwatch(
+        primarySwatch: Colors.red,
+      ).copyWith(
+        primary: primaryColor,
+        onPrimary: Colors.white,
+      ),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: primaryColor,
+        foregroundColor: Colors.white,
+        elevation: 2,
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: primaryColor,
+          foregroundColor: Colors.white,
+        ),
+      ),
+      cardTheme: CardThemeData(
+        elevation: 2,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
     );
   }
 }

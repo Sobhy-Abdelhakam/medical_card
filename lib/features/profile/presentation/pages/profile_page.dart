@@ -29,45 +29,20 @@ class Profile extends StatelessWidget {
     }
   }
 
-  // Future<void> _openWhatsApp(String phoneNumber) async {
-  //   // Ensure phone number is properly formatted with country code
-  //   final formattedNumber = phoneNumber.startsWith('+')
-  //       ? phoneNumber.substring(1)
-  //       : phoneNumber.startsWith('0')
-  //           ? '20${phoneNumber.substring(1)}'
-  //           : phoneNumber;
-  //   final Uri whatsappUri = Uri.parse("whatsapp://send?phone=$formattedNumber");
-
-  //   if (await canLaunchUrl(whatsappUri)) {
-  //     await launchUrl(whatsappUri, mode: LaunchMode.externalApplication);
-  //   } else {
-  //     // Fallback to web version if app is not installed
-  //     final webUri = Uri.parse("https://wa.me/$formattedNumber");
-  //     if (await canLaunchUrl(webUri)) {
-  //       await launchUrl(webUri, mode: LaunchMode.externalApplication);
-  //     } else {
-  //       debugPrint('لا يمكن فتح واتساب');
-  //     }
-  //   }
-  // }
-  Future<void> _openWhatsApp(String phoneNumber) async {
+  Future<void> _openWhatsApp(String phoneNumber, BuildContext? ctx) async {
     final formattedNumber = _formatPhoneNumber(phoneNumber);
-    final Uri whatsappUri = Uri.parse("whatsapp://send?phone=$formattedNumber");
+    final whatsappUri = Uri.parse('https://wa.me/$formattedNumber');
 
+    debugPrint('whatsappUri: $whatsappUri');
     try {
-      if (await canLaunchUrl(whatsappUri)) {
-        await launchUrl(whatsappUri, mode: LaunchMode.externalApplication);
-      } else {
-        // Fallback to web
-        final Uri webUri = Uri.parse("https://wa.me/$formattedNumber");
-        if (await canLaunchUrl(webUri)) {
-          await launchUrl(webUri, mode: LaunchMode.externalApplication);
-        } else {
-          debugPrint('⚠️ لا يمكن فتح واتساب أو المتصفح.');
-        }
+      if (await launchUrl(whatsappUri, mode: LaunchMode.externalApplication)) {
+        return;
       }
+      await Clipboard.setData(ClipboardData(text: whatsappUri.toString()));
+      debugPrint('نسخ رابط واتساب إلى الحافظة (لا يوجد معالج): $whatsappUri');
     } catch (e) {
-      debugPrint('❌ خطأ أثناء محاولة فتح واتساب: $e');
+      await Clipboard.setData(ClipboardData(text: whatsappUri.toString()));
+      debugPrint('خطأ أثناء محاولة فتح واتساب، تم نسخ الرابط: $e');
     }
   }
 
@@ -125,7 +100,7 @@ class Profile extends StatelessWidget {
                 borderRadius: BorderRadius.circular(20.w),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.2),
+                    color: Colors.black.withValues(alpha: 0.2),
                     blurRadius: 20,
                     spreadRadius: 5,
                   ),
@@ -137,7 +112,7 @@ class Profile extends StatelessWidget {
                   Container(
                     padding: EdgeInsets.all(16.w),
                     decoration: BoxDecoration(
-                      color: theme.primaryColor.withOpacity(0.1),
+                      color: theme.primaryColor.withValues(alpha: 0.1),
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
@@ -236,7 +211,7 @@ class Profile extends StatelessWidget {
         borderRadius: BorderRadius.circular(12.w),
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.2),
+            color: color.withValues(alpha: 0.2),
             blurRadius: 8,
             offset: const Offset(0, 4),
           ),
@@ -258,7 +233,7 @@ class Profile extends StatelessWidget {
                 Container(
                   padding: EdgeInsets.all(8.w),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
+                    color: Colors.white.withValues(alpha: 0.2),
                     shape: BoxShape.circle,
                   ),
                   child: FaIcon(
@@ -285,7 +260,7 @@ class Profile extends StatelessWidget {
                       Text(
                         phone,
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.9),
+                          color: Colors.white.withValues(alpha: 0.9),
                           fontSize: 13.sp,
                         ),
                       ),
@@ -294,7 +269,7 @@ class Profile extends StatelessWidget {
                 ),
                 Icon(
                   Icons.arrow_forward_ios_rounded,
-                  color: Colors.white.withOpacity(0.7),
+                  color: Colors.white.withValues(alpha: 0.7),
                   size: 16.w,
                 ),
               ],
@@ -316,7 +291,8 @@ class Profile extends StatelessWidget {
           return SingleChildScrollView(
             child: Center(
               child: Padding(
-                padding: EdgeInsets.only(bottom: 50.h),
+                padding: EdgeInsets.only(
+                    bottom: MediaQuery.of(context).padding.bottom + 24.h),
                 child: Container(
                   constraints: BoxConstraints(
                     maxWidth: isSmallScreen ? double.infinity : 500,
@@ -386,8 +362,8 @@ class Profile extends StatelessWidget {
                                         label: 'واتساب',
                                         subtitle: 'تواصل معنا عبر واتساب',
                                         color: Colors.green,
-                                        onPressed: () =>
-                                            _openWhatsApp('201111768519'),
+                                        onPressed: () => _openWhatsApp(
+                                            '201111768519', context),
                                         isSmall: isSmallScreen,
                                       ),
                                     ),
@@ -415,8 +391,8 @@ class Profile extends StatelessWidget {
                                         label: 'واتساب',
                                         subtitle: 'تواصل معنا عبر واتساب',
                                         color: Colors.green,
-                                        onPressed: () =>
-                                            _openWhatsApp('201111768519'),
+                                        onPressed: () => _openWhatsApp(
+                                            '201111768519', context),
                                         isSmall: isSmallScreen,
                                       ),
                                     ),
@@ -545,7 +521,7 @@ class Profile extends StatelessWidget {
                     width: 44.w,
                     height: 44.w,
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.12),
+                      color: Colors.white.withValues(alpha: 0.12),
                       shape: BoxShape.circle,
                     ),
                     child: Center(
@@ -575,7 +551,7 @@ class Profile extends StatelessWidget {
                           subtitle,
                           style: TextStyle(
                             fontSize: 12.sp,
-                            color: Colors.white.withOpacity(0.95),
+                            color: Colors.white.withValues(alpha: 0.95),
                           ),
                         ),
                       ],

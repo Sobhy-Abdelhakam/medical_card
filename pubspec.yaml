@@ -1,38 +1,60 @@
 name: euro_medical_card
-description: "A new Flutter project."
-publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+description: "Euro Medical Card - Medical providers network application"
+publish_to: 'none'
 
-version: 1.1.1+7
+version: 1.1.2+8
 
 environment:
   sdk: '>=3.2.3 <4.0.0'
 
 dependencies:
-  connectivity_plus: ^7.0.0
-  cupertino_icons: ^1.0.8
   flutter:
     sdk: flutter
+
+  # UI
+  cupertino_icons: ^1.0.8
   flutter_screenutil: ^5.5.4
   font_awesome_flutter: ^10.5.0
-  geolocator: ^14.0.2
+
+  # Network
+  dio: ^5.9.0
+  connectivity_plus: ^7.0.0
+
+  # State Management
+  flutter_bloc: ^9.0.0
+  equatable: ^2.0.7
+
+  # Dependency Injection
+  get_it: ^8.0.3
+
+  # Functional Programming
+  dartz: ^0.10.1
+
+  # Maps & Location
   google_maps_flutter: ^2.6.0
-  http: ^1.2.2
+  geolocator: ^14.0.2
+
+  # Storage
   shared_preferences: ^2.2.0
+
+  # Utilities
   url_launcher: ^6.2.5
   version: ^3.0.2
+  package_info_plus: ^8.2.0
+  cached_network_image: ^3.4.1
 
 dev_dependencies:
-  flutter_launcher_icons: ^0.14.4
   flutter_test:
     sdk: flutter
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.4
+
 flutter_launcher_icons:
   android: true
   ios: true
   image_path: "assets/images/logo.jpg"
 
-  flutter_lints: ^5.0.0
 flutter:
-
   uses-material-design: true
 
   assets:

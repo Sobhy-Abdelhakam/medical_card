@@ -1,41 +1,19 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'data.dart';
 
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
+import 'providers_list_page.dart';
 
-  @override
-  Widget build(BuildContext context) {
-    // Using a simple, clean background color for a more modern look.
-    return Scaffold(
-      backgroundColor: Colors.grey.shade100,
-      body: Padding(
-        padding: EdgeInsets.only(bottom: 50.h),
-        child: const CategoryGrid(),
-      ),
-    );
-  }
-}
+/// Home screen displaying medical network categories
+class MedicalNetworkPage extends StatelessWidget {
+  const MedicalNetworkPage({super.key});
 
-class CategoryGrid extends StatefulWidget {
-  const CategoryGrid({super.key});
-
-  @override
-  _CategoryGridState createState() => _CategoryGridState();
-}
-
-class _CategoryGridState extends State<CategoryGrid> {
-  final List<Map<String, String>> categories = [
+  static const List<Map<String, String>> _categories = [
     {'title': 'المستشفيات', 'image': 'hospital.jpg', 'item': 'مستشفى'},
-    {'title': 'مراكز الأشعة', 'image': 'scan.jpg', 'item': 'مركز أشعة'},
-    {
-      'title': 'معامل التحاليل',
-      'image': 'medicaltests.jpg',
-      'item': 'معمل تحاليل'
-    },
-    {'title': 'مراكز متخصصة', 'image': 'clinic.jpg', 'item': 'مركز متخصص'},
+    {'title': 'مراكز الأشعة', 'image': 'scan.jpg', 'item': 'مراكز الأشعة'},
+    {'title': 'معامل التحاليل', 'image': 'medicaltests.jpg', 'item': 'معامل التحاليل'},
+    {'title': 'مراكز متخصصة', 'image': 'clinic.jpg', 'item': 'مراكز متخصصة'},
     {'title': 'العيادات', 'image': 'clinic.jpg', 'item': 'عيادة'},
     {'title': 'الصيدليات', 'image': 'pharmacy.jpg', 'item': 'صيدلية'},
     {'title': 'العلاج الطبيعي', 'image': 'physical.jpg', 'item': 'علاج طبيعي'},
@@ -44,70 +22,73 @@ class _CategoryGridState extends State<CategoryGrid> {
 
   @override
   Widget build(BuildContext context) {
-    // Using a responsive grid that adjusts the number of columns based on screen width.
-    return GridView.builder(
-      padding: EdgeInsets.all(12.w),
-      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 200.w, // Max width for each item
-        crossAxisSpacing: 12.w,
-        mainAxisSpacing: 12.h,
-        childAspectRatio: 0.85,
+    return Scaffold(
+      backgroundColor: Colors.grey.shade100,
+      body: Padding(
+        padding: EdgeInsets.only(bottom: 50.h),
+        child: GridView.builder(
+          padding: EdgeInsets.all(12.w),
+          gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 200.w,
+            crossAxisSpacing: 12.w,
+            mainAxisSpacing: 12.h,
+            childAspectRatio: 0.85,
+          ),
+          itemCount: _categories.length,
+          itemBuilder: (context, index) {
+            final category = _categories[index];
+            return _AnimatedGridItem(
+              index: index,
+              child: _CategoryCard(category: category),
+            );
+          },
+        ),
       ),
-      itemCount: categories.length,
-      itemBuilder: (context, index) {
-        final category = categories[index];
-        // Applying a staggered animation to each grid item.
-        return AnimatedGridItem(
-          index: index,
-          child: _CategoryCard(category: category),
-        );
-      },
     );
   }
 }
 
 class _CategoryCard extends StatelessWidget {
-  const _CategoryCard({required this.category});
-
   final Map<String, String> category;
+
+  const _CategoryCard({required this.category});
 
   @override
   Widget build(BuildContext context) {
     return Card(
       elevation: 3,
-      shadowColor: Colors.black.withOpacity(0.2),
+      shadowColor: Colors.black.withValues(alpha: 0.2),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16.r),
       ),
-      clipBehavior:
-          Clip.antiAlias, // Ensures content respects the border radius
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => ShowData(item: category['item']!),
+              builder: (context) => ProvidersListPage(
+                type: category['item']!,
+              ),
             ),
           );
         },
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // Background Image with a FadeIn effect
             FadeInImage(
               placeholder: const AssetImage('assets/images/logo.jpg'),
               image: AssetImage('assets/images/${category['image']}'),
               fit: BoxFit.cover,
             ),
-            // Gradient overlay for text readability
             Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    Colors.black.withOpacity(0.7),
+                    Colors.black.withValues(alpha: 0.7),
                     Colors.transparent,
                     Colors.transparent,
-                    Colors.black.withOpacity(0.8),
+                    Colors.black.withValues(alpha: 0.8),
                   ],
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
@@ -115,7 +96,6 @@ class _CategoryCard extends StatelessWidget {
                 ),
               ),
             ),
-            // Positioned Title
             Positioned(
               bottom: 12.h,
               right: 12.w,
@@ -144,22 +124,20 @@ class _CategoryCard extends StatelessWidget {
   }
 }
 
-// A wrapper widget to provide a staggered fade-in and slide-up animation.
-class AnimatedGridItem extends StatefulWidget {
+class _AnimatedGridItem extends StatefulWidget {
   final int index;
   final Widget child;
 
-  const AnimatedGridItem({
-    super.key,
+  const _AnimatedGridItem({
     required this.index,
     required this.child,
   });
 
   @override
-  _AnimatedGridItemState createState() => _AnimatedGridItemState();
+  State<_AnimatedGridItem> createState() => _AnimatedGridItemState();
 }
 
-class _AnimatedGridItemState extends State<AnimatedGridItem>
+class _AnimatedGridItemState extends State<_AnimatedGridItem>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
@@ -182,7 +160,6 @@ class _AnimatedGridItemState extends State<AnimatedGridItem>
       CurvedAnimation(parent: _controller, curve: Curves.easeOut),
     );
 
-    // Stagger the animation based on the item's index.
     final delay = Duration(milliseconds: widget.index * 80);
     Timer(delay, () {
       if (mounted) {

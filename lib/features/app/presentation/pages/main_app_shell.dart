@@ -1,35 +1,45 @@
+import 'package:euro_medical_card/features/map/presentation/pages/map_page.dart';
+import 'package:euro_medical_card/features/profile/presentation/pages/profile_page.dart';
+import 'package:euro_medical_card/features/providers/presentation/pages/medical_network_page.dart';
+import 'package:euro_medical_card/features/providers/presentation/pages/partners_page.dart';
 import 'package:flutter/material.dart';
-import 'package:euro_medical_card/screen/map.dart';
-import 'package:euro_medical_card/screen/profile.dart';
-import 'package:euro_medical_card/screen/partners.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'card_data.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
-// import 'package:flutter/material.dart';
-// import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-// import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:flutter/services.dart';
-
-class MainApp extends StatefulWidget {
-  const MainApp({super.key});
+/// Main application shell with bottom navigation
+class MainAppShell extends StatefulWidget {
+  const MainAppShell({super.key});
 
   @override
-  State<MainApp> createState() => _MainAppState();
+  State<MainAppShell> createState() => _MainAppShellState();
 }
 
-class _MainAppState extends State<MainApp> {
-  int _selectedIndex = 0; // Start on Home
-  final List<Widget> _widgetOptions = const [
-    MapData(),
-    HomeScreen(),
-    PartnersScreen(),
-    Profile(),
+class _MainAppShellState extends State<MainAppShell> {
+  int _selectedIndex = 0;
+
+  final List<Widget> _pages = [
+    const MapData(),
+    const MedicalNetworkPage(),
+    const PartnersPage(),
+    const Profile(),
   ];
 
+  final Set<int> _visitedIndices = {0};
+
+  @override
+  void initState() {
+    super.initState();
+    // Ensure the initial page is marked as visited
+    _visitedIndices.add(_selectedIndex);
+  }
+
   void _onItemTapped(int index) {
-    HapticFeedback.lightImpact(); // ✅ adds nice touch feedback
-    setState(() => _selectedIndex = index);
+    HapticFeedback.lightImpact();
+    setState(() {
+      _selectedIndex = index;
+      _visitedIndices.add(index);
+    });
   }
 
   @override
@@ -52,7 +62,7 @@ class _MainAppState extends State<MainApp> {
                 ),
               ),
               title: Row(
-                mainAxisSize: MainAxisSize.min, // Keeps it centered and tight
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Image.asset(
                     'assets/icons/logo.png',
@@ -60,8 +70,8 @@ class _MainAppState extends State<MainApp> {
                     width: 35,
                     height: 35,
                   ),
-                  SizedBox(width: 3),
-                  Text(
+                  const SizedBox(width: 3),
+                  const Text(
                     'Euro Medical Card',
                     style: TextStyle(
                       color: Colors.white,
@@ -79,7 +89,12 @@ class _MainAppState extends State<MainApp> {
         duration: const Duration(milliseconds: 300),
         child: IndexedStack(
           index: _selectedIndex,
-          children: _widgetOptions,
+          children: List.generate(_pages.length, (index) {
+            if (_visitedIndices.contains(index)) {
+              return _pages[index];
+            }
+            return const SizedBox.shrink();
+          }),
         ),
       ),
       bottomNavigationBar: Container(
@@ -87,11 +102,11 @@ class _MainAppState extends State<MainApp> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(24),
-          boxShadow: [
+          boxShadow: const [
             BoxShadow(
               color: Colors.black12,
               blurRadius: 8,
-              offset: const Offset(0, 3),
+              offset: Offset(0, 3),
             ),
           ],
         ),
@@ -110,7 +125,6 @@ class _MainAppState extends State<MainApp> {
             onTap: _onItemTapped,
             items: const [
               BottomNavigationBarItem(
-                // icon: FaIcon(FontAwesomeIcons.mapLocation),
                 icon: Icon(Icons.map_outlined),
                 activeIcon: Icon(Icons.map),
                 label: 'الخريطة',
@@ -120,7 +134,6 @@ class _MainAppState extends State<MainApp> {
                 label: 'الشبكة الطبية',
               ),
               BottomNavigationBarItem(
-                // icon: FaIcon(FontAwesomeIcons.handshake),
                 icon: Icon(Icons.handshake_outlined),
                 activeIcon: Icon(Icons.handshake),
                 label: 'كبار الشركاء',

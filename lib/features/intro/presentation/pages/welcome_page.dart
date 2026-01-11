@@ -1,7 +1,9 @@
+
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:euro_medical_card/screen/main_app.dart';
+import '../../../../di/injection_container.dart';
+import '../../../app/presentation/pages/main_app_shell.dart';
+import '../../domain/repositories/intro_repository.dart';
 
 class WelcomePage extends StatefulWidget {
   const WelcomePage({super.key});
@@ -44,9 +46,11 @@ class _WelcomePage extends State<WelcomePage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       for (int i = 0; i < introData.length; i++) {
         precacheImage(AssetImage(introData[i]['image']!), context).then((_) {
-          setState(() {
-            imageLoaded[i] = true;
-          });
+          if (mounted) {
+            setState(() {
+              imageLoaded[i] = true;
+            });
+          }
         });
       }
     });
@@ -59,12 +63,13 @@ class _WelcomePage extends State<WelcomePage> {
         curve: Curves.easeInOut,
       );
     } else {
-      SharedPreferences prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('isLoggedIn', true);
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const MainApp()),
-      );
+      await sl<IntroRepository>().setAppOpened();
+      if(mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const MainAppShell()),
+        );
+      }
     }
   }
 
@@ -120,7 +125,7 @@ class _WelcomePage extends State<WelcomePage> {
                         ),
                         const SizedBox(height: 10),
                         Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 30.0),
+                          padding: const EdgeInsets.symmetric(horizontal: 30.0),
                           child: Text(
                             introData[index]["description"]!,
                             textAlign: TextAlign.center,
