@@ -13,8 +13,6 @@ abstract class ProvidersRemoteDataSource {
   Future<({List<ProviderModel> providers, PaginationModel? pagination})>
       getProviders(GetProvidersParams params);
 
-
-
   /// Performs free-form search across all provider fields
   Future<({List<ProviderModel> providers, PaginationModel? pagination})>
       searchProviders(SearchProvidersParams params);
@@ -68,7 +66,11 @@ class ProvidersRemoteDataSourceImpl implements ProvidersRemoteDataSource {
       queryParams[ApiConstants.searchName] = params.searchName;
     }
     if (params.type != null && params.type!.isNotEmpty) {
-      queryParams[ApiConstants.type] = params.type;
+      if (params.type == 'معمل تحاليل') {
+        queryParams[ApiConstants.type] = 'معامل التحاليل';
+      } else {
+        queryParams[ApiConstants.type] = params.type;
+      }
     }
     if (params.search != null && params.search!.isNotEmpty) {
       queryParams[ApiConstants.search] = params.search;
@@ -141,8 +143,6 @@ class ProvidersRemoteDataSourceImpl implements ProvidersRemoteDataSource {
 
     return (providers: providers, pagination: pagination);
   }
-
-
 
   @override
   Future<({List<ProviderModel> providers, PaginationModel? pagination})>
