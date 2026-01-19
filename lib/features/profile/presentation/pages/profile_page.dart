@@ -1,11 +1,43 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-class Profile extends StatelessWidget {
+import '../../../../di/injection_container.dart';
+import '../../../auth/domain/entities/member_entity.dart';
+import '../../../auth/presentation/cubit/auth/auth_cubit.dart';
+import '../../../auth/presentation/cubit/auth/auth_state.dart';
+import '../../../auth/presentation/pages/login_page.dart';
+
+class Profile extends StatefulWidget {
   const Profile({super.key});
+
+  @override
+  State<Profile> createState() => _ProfileState();
+}
+
+class _ProfileState extends State<Profile> {
+  late final AuthCubit _authCubit;
+  bool _isDownloading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _authCubit = sl<AuthCubit>();
+  }
+
+  @override
+  void dispose() {
+    _authCubit.close();
+    super.dispose();
+  }
 
   Future<void> _launchURL(String url) async {
     final uri = Uri.parse(url);
@@ -29,176 +61,466 @@ class Profile extends StatelessWidget {
     }
   }
 
-  Future<void> _openWhatsApp(String phoneNumber, BuildContext? ctx) async {
+  Future<void> _openWhatsApp(String phoneNumber) async {
     final formattedNumber = _formatPhoneNumber(phoneNumber);
     final whatsappUri = Uri.parse('https://wa.me/$formattedNumber');
 
-    debugPrint('whatsappUri: $whatsappUri');
     try {
       if (await launchUrl(whatsappUri, mode: LaunchMode.externalApplication)) {
         return;
       }
       await Clipboard.setData(ClipboardData(text: whatsappUri.toString()));
-      debugPrint('نسخ رابط واتساب إلى الحافظة (لا يوجد معالج): $whatsappUri');
+      debugPrint('نسخ رابط واتساب إلى الحافظة');
     } catch (e) {
       await Clipboard.setData(ClipboardData(text: whatsappUri.toString()));
-      debugPrint('خطأ أثناء محاولة فتح واتساب، تم نسخ الرابط: $e');
+      debugPrint('خطأ أثناء محاولة فتح واتساب: $e');
     }
   }
 
   String _formatPhoneNumber(String number) {
-    number = number.replaceAll(
-        RegExp(r'[^0-9+]'), ''); // Remove spaces, dashes, etc.
+    number = number.replaceAll(RegExp(r'[^0-9+]'), '');
     if (number.startsWith('+')) {
-      return number.substring(1); // remove '+'
+      return number.substring(1);
     } else if (number.startsWith('00')) {
       return number.substring(2);
     } else if (number.startsWith('0')) {
-      // Replace with your country code (example: Egypt = 20)
       return '20${number.substring(1)}';
     } else {
       return number;
     }
   }
 
-  void _showContactDialog(BuildContext context) {
-    final isLandscape =
-        MediaQuery.of(context).orientation == Orientation.landscape;
-    final theme = Theme.of(context);
+  Future<void> _downloadCard(int memberId) async {
+    setState(() => _isDownloading = true);
 
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      barrierColor: Colors.black54,
-      builder: (BuildContext context) {
-        return Dialog(
-          insetPadding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 24.h),
-          backgroundColor: Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20.w),
+    try {
+      // Debugging requirements
+      // ignore: avoid_print
+      print('[DOWNLOAD] start memberId=$memberId');
+
+      // Request permission properly (Android 13+/legacy)
+      final storageStatus = await Permission.storage.request();
+      final photosStatus = await Permission.photos.request();
+
+      // Debugging requirements
+      // ignore: avoid_print
+      print(
+          '[DOWNLOAD] permission storage=$storageStatus photos=$photosStatus');
+
+      final hasPermission = storageStatus.isGranted ||
+          photosStatus.isGranted ||
+          Platform.isIOS;
+
+      if (!hasPermission) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('يجب منح إذن التخزين لتنزيل البطاقة'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      // Download image bytes
+      final url = 'http://euroassist.3utilities.com:5001/debug/card-raw/$memberId';
+      // ignore: avoid_print
+      print('[DOWNLOAD] url=$url');
+      
+      // Save to app-specific external directory on Android (no shared Downloads dependency)
+      final Directory? baseDir = Platform.isAndroid
+          ? await getExternalStorageDirectory()
+          : await getApplicationDocumentsDirectory();
+      if (baseDir == null) throw Exception('Could not access storage directory');
+
+      final targetDir = Directory('${baseDir.path}/EuroMedicalCard');
+      if (!await targetDir.exists()) {
+        await targetDir.create(recursive: true);
+      }
+
+      final file = File('${targetDir.path}/medical_card_$memberId.png');
+      
+      final httpClient = HttpClient();
+      final request = await httpClient.getUrl(Uri.parse(url));
+      final response = await request.close();
+      final bytes = await consolidateHttpClientResponseBytes(response);
+      // Debugging requirements
+      // ignore: avoid_print
+      print('[DOWNLOAD] status=${response.statusCode} bytes=${bytes.length}');
+
+      if (bytes.isEmpty) {
+        throw Exception('لم يتم استلام بيانات الصورة');
+      }
+
+      await file.writeAsBytes(bytes);
+
+      // Debugging requirements
+      // ignore: avoid_print
+      print('[DOWNLOAD] saved path=${file.path} bytes=${bytes.length}');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('تم حفظ البطاقة: ${file.path}'),
+            backgroundColor: Colors.green,
           ),
-          child: TweenAnimationBuilder<double>(
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOutCubic,
-            tween: Tween(begin: 0.0, end: 1.0),
-            builder: (context, value, child) {
-              return Transform.scale(
-                scale: 0.5 + (0.5 * value),
-                child: Opacity(
-                  opacity: value,
-                  child: child,
-                ),
-              );
-            },
-            child: Container(
-              constraints: BoxConstraints(
-                maxWidth: isLandscape ? 400.w : 320.w,
-              ),
-              padding: EdgeInsets.all(24.w),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20.w),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.2),
-                    blurRadius: 20,
-                    spreadRadius: 5,
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: EdgeInsets.all(16.w),
-                    decoration: BoxDecoration(
-                      color: theme.primaryColor.withValues(alpha: 0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      Icons.contact_phone_rounded,
-                      size: isLandscape ? 32.w : 40.w,
-                      color: theme.primaryColor,
-                    ),
-                  ),
-                  SizedBox(height: 16.h),
-                  Text(
-                    'اختر طريقة التواصل',
-                    style: TextStyle(
-                      fontSize: isLandscape ? 18.sp : 20.sp,
-                      fontWeight: FontWeight.bold,
-                      color: theme.primaryColor,
-                    ),
-                  ),
-                  SizedBox(height: 8.h),
-                  Text(
-                    'يمكنك الاتصال بنا على أي من الأرقام التالية',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 13.sp,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                  SizedBox(height: 24.h),
-                  _buildContactButton(
-                    context: context,
-                    icon: FontAwesomeIcons.phone,
-                    label: 'الخط الساخن',
-                    phone: '+20233001122',
-                    color: Colors.green.shade600,
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                      _makePhoneCall('+20233001122');
-                    },
-                  ),
-                  SizedBox(height: 12.h),
-                  _buildContactButton(
-                    context: context,
-                    icon: FontAwesomeIcons.mobile,
-                    label: 'رقم الموبايل',
-                    phone: '+201111768519',
-                    color: Colors.blue.shade600,
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                      _makePhoneCall('+201111768519');
-                    },
-                  ),
-                  SizedBox(height: 24.h),
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    style: TextButton.styleFrom(
-                      foregroundColor: Colors.grey[600],
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 24.w,
-                        vertical: 12.h,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12.w),
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.close, size: 18.w),
-                        SizedBox(width: 8.w),
-                        Text(
-                          'إغلاق',
-                          style: TextStyle(fontSize: 14.sp),
+        );
+      }
+    } catch (e) {
+      // ignore: avoid_print
+      print('[DOWNLOAD] exception: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('فشل تنزيل البطاقة: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isDownloading = false);
+      }
+    }
+  }
+
+  Future<void> _logout() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('تسجيل الخروج'),
+        content: const Text('هل أنت متأكد من تسجيل الخروج؟'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('إلغاء'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('تسجيل الخروج'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && mounted) {
+      await _authCubit.logout();
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginPage()),
+        (route) => false,
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocProvider.value(
+      value: _authCubit,
+      child: BlocBuilder<AuthCubit, AuthState>(
+        builder: (context, state) {
+          if (state is AuthAuthenticated) {
+            return _buildProfileContent(state.member);
+          }
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildProfileContent(MemberEntity member) {
+    final memberId = member.memberId;
+    final memberName = member.memberName;
+    final templateName = member.templateName;
+
+    // Debugging requirements
+    // ignore: avoid_print
+    print(
+        '[PROFILE] build memberId=$memberId memberName="$memberName" templateName="$templateName"');
+
+    return Scaffold(
+      backgroundColor: Colors.grey[100],
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).padding.bottom + 24.h,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Profile Header
+              _buildProfileHeader(memberName, templateName, memberId),
+              SizedBox(height: 16.h),
+              // Membership Card Preview
+              _buildCardPreview(memberId),
+              SizedBox(height: 24.h),
+              // Contact & Social Section
+              _buildContactSection(),
+              SizedBox(height: 24.h),
+              // Logout Button
+              _buildLogoutButton(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfileHeader(String name, String templateName, int memberId) {
+    return Container(
+      margin: EdgeInsets.all(16.w),
+      padding: EdgeInsets.all(20.w),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16.r),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            name,
+            style: TextStyle(
+              fontSize: 24.sp,
+              fontWeight: FontWeight.bold,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+          SizedBox(height: 8.h),
+          Text(
+            templateName,
+            style: TextStyle(
+              fontSize: 16.sp,
+              color: Colors.grey[600],
+            ),
+          ),
+          SizedBox(height: 4.h),
+          Text(
+            'Member ID: $memberId',
+            style: TextStyle(
+              fontSize: 14.sp,
+              color: Colors.grey[500],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCardPreview(int memberId) {
+    final cardUrl = 'http://euroassist.3utilities.com:5001/debug/card-raw/$memberId';
+    // Debugging requirements
+    // ignore: avoid_print
+    print('[PROFILE] cardUrl=$cardUrl');
+
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: 16.w),
+      padding: EdgeInsets.all(20.w),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16.r),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'My Card',
+            style: TextStyle(
+              fontSize: 20.sp,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          SizedBox(height: 16.h),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12.r),
+            child: AspectRatio(
+              aspectRatio: 1.6,
+              child: memberId <= 0
+                  ? Container(
+                      color: Colors.grey[200],
+                      child: Center(
+                        child: Text(
+                          'لا يوجد رقم عضو صالح',
+                          style: TextStyle(color: Colors.grey[700]),
                         ),
-                      ],
+                      ),
+                    )
+                  : Image.network(
+                      cardUrl,
+                      fit: BoxFit.contain,
+                      loadingBuilder: (context, child, progress) {
+                        if (progress == null) return child;
+                        return Container(
+                          color: Colors.grey[200],
+                          child: Center(
+                            child: CircularProgressIndicator(
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Theme.of(context).primaryColor,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                      errorBuilder: (context, error, stackTrace) {
+                        // Debugging requirements
+                        // ignore: avoid_print
+                        print('[PROFILE] card image error: $error');
+                        return Container(
+                          color: Colors.grey[200],
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.error_outline,
+                                size: 48.w,
+                                color: Colors.grey,
+                              ),
+                              SizedBox(height: 8.h),
+                              const Text('فشل تحميل البطاقة'),
+                            ],
+                          ),
+                        );
+                      },
                     ),
-                  ),
-                ],
+            ),
+          ),
+          SizedBox(height: 16.h),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _isDownloading ? null : () => _downloadCard(memberId),
+              icon: _isDownloading
+                  ? SizedBox(
+                      width: 20.w,
+                      height: 20.w,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Icon(Icons.download),
+              label: Text(_isDownloading ? 'جاري التنزيل...' : 'Download Card'),
+              style: ElevatedButton.styleFrom(
+                padding: EdgeInsets.symmetric(vertical: 14.h),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12.r),
+                ),
               ),
             ),
           ),
-        );
-      },
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContactSection() {
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: 16.w),
+      padding: EdgeInsets.all(20.w),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16.r),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Contact & Social',
+            style: TextStyle(
+              fontSize: 20.sp,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          SizedBox(height: 16.h),
+          // Phone buttons
+          _buildContactButton(
+            icon: FontAwesomeIcons.phone,
+            label: 'الخط الساخن',
+            phone: '+20233001122',
+            color: Colors.green.shade600,
+            onPressed: () => _makePhoneCall('+20233001122'),
+          ),
+          SizedBox(height: 12.h),
+          _buildContactButton(
+            icon: FontAwesomeIcons.mobile,
+            label: 'رقم الموبايل',
+            phone: '+201111768519',
+            color: Colors.blue.shade600,
+            onPressed: () => _makePhoneCall('+201111768519'),
+          ),
+          SizedBox(height: 12.h),
+          _buildContactButton(
+            icon: FontAwesomeIcons.whatsapp,
+            label: 'واتساب',
+            phone: '201111768519',
+            color: Colors.green,
+            onPressed: () => _openWhatsApp('201111768519'),
+          ),
+          SizedBox(height: 20.h),
+          const Divider(),
+          SizedBox(height: 16.h),
+          // Social media
+          Text(
+            'تابعنا على وسائل التواصل الاجتماعي',
+            style: TextStyle(
+              fontSize: 14.sp,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey[700],
+            ),
+          ),
+          SizedBox(height: 16.h),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _buildSocialIcon(
+                icon: FontAwesomeIcons.facebook,
+                color: Colors.blue,
+                url: 'https://www.facebook.com/share/1KvhiRG6RB/',
+                label: 'فيسبوك',
+              ),
+              _buildSocialIcon(
+                icon: FontAwesomeIcons.instagram,
+                color: Colors.purple,
+                url: 'https://www.instagram.com/euromedicalcard',
+                label: 'انستغرام',
+              ),
+              _buildSocialIcon(
+                icon: FontAwesomeIcons.youtube,
+                color: Colors.red,
+                url: 'https://www.youtube.com/@euroassist',
+                label: 'يوتيوب',
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildContactButton({
-    required BuildContext context,
     required IconData icon,
     required String label,
     required String phone,
@@ -206,9 +528,8 @@ class Profile extends StatelessWidget {
     required VoidCallback onPressed,
   }) {
     return Container(
-      width: double.infinity,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12.w),
+        borderRadius: BorderRadius.circular(12.r),
         boxShadow: [
           BoxShadow(
             color: color.withValues(alpha: 0.2),
@@ -219,34 +540,19 @@ class Profile extends StatelessWidget {
       ),
       child: Material(
         color: color,
-        borderRadius: BorderRadius.circular(12.w),
+        borderRadius: BorderRadius.circular(12.r),
         child: InkWell(
           onTap: onPressed,
-          borderRadius: BorderRadius.circular(12.w),
+          borderRadius: BorderRadius.circular(12.r),
           child: Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: 20.w,
-              vertical: 16.h,
-            ),
+            padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 14.h),
             child: Row(
               children: [
-                Container(
-                  padding: EdgeInsets.all(8.w),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.2),
-                    shape: BoxShape.circle,
-                  ),
-                  child: FaIcon(
-                    icon,
-                    size: 16.w,
-                    color: Colors.white,
-                  ),
-                ),
-                SizedBox(width: 16.w),
+                FaIcon(icon, color: Colors.white, size: 20.w),
+                SizedBox(width: 12.w),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
                         label,
@@ -280,316 +586,7 @@ class Profile extends StatelessWidget {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey[100],
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final isSmallScreen = constraints.maxWidth < 600;
-
-          return SingleChildScrollView(
-            child: Center(
-              child: Padding(
-                padding: EdgeInsets.only(
-                    bottom: MediaQuery.of(context).padding.bottom + 24.h),
-                child: Container(
-                  constraints: BoxConstraints(
-                    maxWidth: isSmallScreen ? double.infinity : 500,
-                  ),
-                  padding: EdgeInsets.symmetric(
-                    horizontal: isSmallScreen ? 10.w : 20.w,
-                    vertical: 20.h,
-                  ),
-                  child: Card(
-                    elevation: 16,
-                    shadowColor: Colors.black38,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(24),
-                        color: Colors.white,
-                      ),
-                      padding: EdgeInsets.all(isSmallScreen ? 20.w : 30.w),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            padding: EdgeInsets.all(8.w),
-                            decoration: BoxDecoration(
-                              color: Colors.blue.withValues(alpha: 0.1),
-                              shape: BoxShape.circle,
-                            ),
-                            child: CircleAvatar(
-                              radius: isSmallScreen ? 55 : 65,
-                              backgroundImage:
-                                  const AssetImage('assets/images/logo.jpg'),
-                            ),
-                          ),
-                          SizedBox(height: isSmallScreen ? 20.h : 25.h),
-                          Text(
-                            'شبكة طبية متكاملة تغطي كل المحافظات',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: isSmallScreen ? 17.sp : 19.sp,
-                              color: Theme.of(context).colorScheme.primary,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          SizedBox(height: isSmallScreen ? 8.h : 12.h),
-                          Text(
-                            'نحن هنا لمساعدتك في العثور على أفضل الخدمات الطبية',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: isSmallScreen ? 13.sp : 14.sp,
-                              color: Colors.grey[600],
-                            ),
-                          ),
-                          SizedBox(height: isSmallScreen ? 25.h : 35.h),
-
-                          // Contact buttons with enhanced design
-                          isSmallScreen
-                              ? Column(
-                                  children: [
-                                    // Force a consistent height so both buttons look identical
-                                    SizedBox(
-                                      height: 72.h,
-                                      width: double.infinity,
-                                      child: _buildEnhancedContactButton(
-                                        icon: FontAwesomeIcons.whatsapp,
-                                        label: 'واتساب',
-                                        subtitle: 'تواصل معنا عبر واتساب',
-                                        color: Colors.green,
-                                        onPressed: () => _openWhatsApp(
-                                            '201111768519', context),
-                                        isSmall: isSmallScreen,
-                                      ),
-                                    ),
-                                    SizedBox(height: 12.h),
-                                    SizedBox(
-                                      height: 72.h,
-                                      width: double.infinity,
-                                      child: _buildEnhancedContactButton(
-                                        icon: FontAwesomeIcons.phone,
-                                        label: 'اتصل بنا',
-                                        subtitle: 'اتصل بنا مباشرة',
-                                        color: Colors.blue,
-                                        onPressed: () =>
-                                            _showContactDialog(context),
-                                        isSmall: isSmallScreen,
-                                      ),
-                                    ),
-                                  ],
-                                )
-                              : Row(
-                                  children: [
-                                    Expanded(
-                                      child: _buildEnhancedContactButton(
-                                        icon: FontAwesomeIcons.whatsapp,
-                                        label: 'واتساب',
-                                        subtitle: 'تواصل معنا عبر واتساب',
-                                        color: Colors.green,
-                                        onPressed: () => _openWhatsApp(
-                                            '201111768519', context),
-                                        isSmall: isSmallScreen,
-                                      ),
-                                    ),
-                                    SizedBox(width: 16.w),
-                                    Expanded(
-                                      child: _buildEnhancedContactButton(
-                                        icon: FontAwesomeIcons.phone,
-                                        label: 'اتصل بنا',
-                                        subtitle: 'اتصل بنا مباشرة',
-                                        color: Colors.blue,
-                                        onPressed: () =>
-                                            _showContactDialog(context),
-                                        isSmall: isSmallScreen,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-
-                          SizedBox(height: isSmallScreen ? 25.h : 35.h),
-
-                          // Social media section with enhanced design
-                          Container(
-                            padding: EdgeInsets.all(16.w),
-                            decoration: BoxDecoration(
-                              color: Colors.grey.withValues(alpha: 0.05),
-                              borderRadius: BorderRadius.circular(16.w),
-                              border: Border.all(
-                                color: Colors.grey.withValues(alpha: 0.2),
-                                width: 1.w,
-                              ),
-                            ),
-                            child: Column(
-                              children: [
-                                Text(
-                                  'تابعنا على وسائل التواصل الاجتماعي',
-                                  style: TextStyle(
-                                    fontSize: isSmallScreen ? 14.sp : 16.sp,
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.grey[700],
-                                  ),
-                                ),
-                                SizedBox(height: 16.h),
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceEvenly,
-                                  children: [
-                                    _buildEnhancedSocialIcon(
-                                      icon: FontAwesomeIcons.facebook,
-                                      color: Colors.blue,
-                                      url:
-                                          'https://www.facebook.com/share/1KvhiRG6RB/',
-                                      label: 'فيسبوك',
-                                    ),
-                                    _buildEnhancedSocialIcon(
-                                      icon: FontAwesomeIcons.instagram,
-                                      color: Colors.purple,
-                                      url:
-                                          'https://www.instagram.com/euromedicalcard',
-                                      label: 'انستغرام',
-                                    ),
-                                    _buildEnhancedSocialIcon(
-                                      icon: FontAwesomeIcons.youtube,
-                                      color: Colors.red,
-                                      url:
-                                          'https://www.youtube.com/@euroassist',
-                                      label: 'يوتيوب',
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildEnhancedContactButton({
-    required IconData icon,
-    required String label,
-    required String subtitle,
-    required Color color,
-    required VoidCallback onPressed,
-    required bool isSmall,
-  }) {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16.w),
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.3),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: ElevatedButton(
-        onPressed: onPressed,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: color,
-          foregroundColor: Colors.white,
-          elevation: 0,
-          // Ensure accessible hit target and consistent sizing
-          minimumSize: Size(double.infinity, isSmall ? 64.h : 56.h),
-          padding: EdgeInsets.symmetric(
-            horizontal: isSmall ? 16.w : 20.w,
-            vertical: isSmall ? 8.h : 14.h,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16.w),
-          ),
-        ),
-        // Use a compact horizontal layout on small screens for balance
-        child: isSmall
-            ? Row(
-                children: [
-                  Container(
-                    width: 44.w,
-                    height: 44.w,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.12),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Center(
-                      child: FaIcon(
-                        icon,
-                        size: 20.w,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                  SizedBox(width: 12.w),
-                  Expanded(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          label,
-                          style: TextStyle(
-                            fontSize: 15.sp,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                        SizedBox(height: 4.h),
-                        Text(
-                          subtitle,
-                          style: TextStyle(
-                            fontSize: 12.sp,
-                            color: Colors.white.withValues(alpha: 0.95),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              )
-            : Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  FaIcon(
-                    icon,
-                    size: isSmall ? 20.w : 24.w,
-                  ),
-                  SizedBox(height: 8.h),
-                  Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: isSmall ? 14.sp : 16.sp,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  SizedBox(height: 4.h),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      fontSize: isSmall ? 11.sp : 12.sp,
-                      color: Colors.white.withValues(alpha: 0.9),
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-      ),
-    );
-  }
-
-  Widget _buildEnhancedSocialIcon({
+  Widget _buildSocialIcon({
     required IconData icon,
     required Color color,
     required String url,
@@ -604,11 +601,7 @@ class Profile extends StatelessWidget {
             shape: BoxShape.circle,
           ),
           child: IconButton(
-            icon: FaIcon(
-              icon,
-              color: color,
-              size: 24.w,
-            ),
+            icon: FaIcon(icon, color: color, size: 24.w),
             onPressed: () => _launchURL(url),
           ),
         ),
@@ -623,4 +616,24 @@ class Profile extends StatelessWidget {
       ],
     );
   }
+
+  Widget _buildLogoutButton() {
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: 16.w),
+      child: ElevatedButton.icon(
+        onPressed: _logout,
+        icon: const Icon(Icons.logout),
+        label: const Text('Logout'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.red,
+          foregroundColor: Colors.white,
+          padding: EdgeInsets.symmetric(vertical: 16.h),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12.r),
+          ),
+        ),
+      ),
+    );
+  }
+
 }

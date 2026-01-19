@@ -16,6 +16,8 @@ class SplashNavigateToHome extends SplashState {}
 
 class SplashNavigateToWelcome extends SplashState {}
 
+class SplashNavigateToLogin extends SplashState {}
+
 // class SplashUpdateAvailable extends SplashState {
 //   final String downloadUrl;
 //   final String status;

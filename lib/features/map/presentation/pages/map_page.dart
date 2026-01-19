@@ -9,7 +9,9 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../../core/localization/app_localizations.dart';
 import '../../../../di/injection_container.dart';
+import '../../../auth/domain/repositories/auth_repository.dart';
 import '../../../providers/domain/entities/provider_entity.dart';
 import '../../../providers/presentation/cubit/map_providers/map_providers_cubit.dart';
 
@@ -38,11 +40,8 @@ const double _iconBorderWidth = 4.0;
 // Spacing & padding
 const double _filterChipSpacing = 8.0;
 const double _topBarPadding = 16.0;
-const double _topBarVerticalPadding = 8.0;
 const double _bottomButtonSpacing = 12.0;
 const double _bottomPadding = 24.0;
-const double _filterOverlayInitialOffset = -200.0;
-const double _filterOverlayVisibleOffset = 100.0;
 
 // Shadow configuration
 const BoxShadow _defaultBoxShadow = BoxShadow(
@@ -92,6 +91,8 @@ class _MapDataState extends State<MapData> with WidgetsBindingObserver {
   bool _showLegend = false;
   bool _isLocationLoading = false;
   bool _isMapReady = false;
+  String? _memberName;
+  int? _templateId;
 
   // Timers
   Timer? _searchDebounceTimer;
@@ -102,10 +103,28 @@ class _MapDataState extends State<MapData> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _cubit = sl<MapProvidersCubit>();
     _iconCache = _MapIconCache();
+    _loadMemberInfo();
     // Defer initialization to next frame to allow UI to render first
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeScreen();
     });
+  }
+
+  /// Load member info for welcome banner
+  Future<void> _loadMemberInfo() async {
+    final authRepository = sl<AuthRepository>();
+    final member = await authRepository.getCurrentMember();
+    // Debugging requirements
+    // ignore: avoid_print
+    print(
+        '[MAP] loaded member for welcome: ${member?.memberId} "${member?.memberName}" templateId=${member?.templateId}');
+
+    if (member != null && mounted) {
+      setState(() {
+        _memberName = member.memberName;
+        _templateId = member.templateId;
+      });
+    }
   }
 
   /// Initialize the map screen with all necessary resources
@@ -232,10 +251,10 @@ class _MapDataState extends State<MapData> with WidgetsBindingObserver {
     return BlocProvider.value(
       value: _cubit,
       child: Scaffold(
+        appBar: _buildAppBar(),
         body: Stack(
           children: [
             _buildMap(),
-            _buildTopBar(),
             _buildFilterOverlay(),
             _buildLegend(),
             _buildFloatingButtons(),
@@ -243,6 +262,134 @@ class _MapDataState extends State<MapData> with WidgetsBindingObserver {
           ],
         ),
       ),
+    );
+  }
+
+  /// Build professional app bar with welcome message and search
+  PreferredSizeWidget _buildAppBar() {
+    return PreferredSize(
+      preferredSize: Size.fromHeight(120.h),
+      child: AppBar(
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        automaticallyImplyLeading: false,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Theme.of(context).primaryColor.withOpacity(0.95),
+                Theme.of(context).primaryColor.withOpacity(0.85),
+              ],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Theme.of(context).primaryColor.withOpacity(0.3),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: SafeArea(
+            bottom: false,
+            child: Container(
+              padding: EdgeInsets.only(
+                left: _topBarPadding.w,
+                right: _topBarPadding.w,
+                top: 8.h,
+                bottom: 10.h,
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildWelcomeBannerCompact(),
+                  SizedBox(height: 8.h),
+                  _buildSearchAndFilterBar(),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Compact welcome banner for app bar
+  Widget _buildWelcomeBannerCompact() {
+    final name =
+        (_memberName?.trim().isNotEmpty ?? false) ? _memberName! : 'Guest';
+    final hasAvatar = _templateId == 7;
+
+    return SizedBox(
+      height: 45.h,
+      child: Row(
+        children: [
+          if (hasAvatar)
+            Container(
+              width: 45.w,
+              height: 45.h, 
+              margin: EdgeInsets.symmetric(horizontal: 8.w),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10.r),
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.6),
+                  width: 1.5,
+                ),
+              ),
+              child: Image.asset(
+                'assets/images/zamalik.jpeg',
+                fit: BoxFit.contain,
+              ),
+            ),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  context.tr('welcome_back'),
+                  style: TextStyle(
+                    fontSize: 10.5.sp,
+                    fontWeight: FontWeight.w400,
+                    color: Colors.white.withOpacity(0.8),
+                    height: 1.0,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                SizedBox(height: 0.5.h),
+                Text(
+                  name,
+                  style: TextStyle(
+                    fontSize: 13.sp,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                    height: 1.0,
+                    letterSpacing: 0.3,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Search and filter bar for app bar
+  Widget _buildSearchAndFilterBar() {
+    return Row(
+      children: [
+        _buildFilterButton(),
+        SizedBox(width: _filterChipSpacing.w),
+        Expanded(child: _buildSearchBar()),
+      ],
     );
   }
 
@@ -328,87 +475,124 @@ class _MapDataState extends State<MapData> with WidgetsBindingObserver {
   }
 
   // ========================================================================
-  // Top Bar & Search
+  // Filter Overlay
   // ========================================================================
 
-  Widget _buildTopBar() {
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.symmetric(
-          horizontal: _topBarPadding.w,
-          vertical: _topBarVerticalPadding.h,
-        ),
-        child: Row(
-          children: [
-            _buildFilterButton(),
-            SizedBox(width: _filterChipSpacing.w),
-            Expanded(child: _buildSearchBar()),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildFilterButton() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        shape: BoxShape.circle,
-        boxShadow: const [_defaultBoxShadow],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: _toggleFilterOverlay,
-          child: Padding(
-            padding: EdgeInsets.all(8.w),
-            child: Icon(
-              _isFilterOverlayVisible ? Icons.close : Icons.filter_list,
-              color: Theme.of(context).primaryColor,
-              size: 24.sp,
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: _isFilterOverlayVisible ? 1 : 0),
+      duration: _animationDuration,
+      builder: (context, value, child) {
+        return Transform.rotate(
+          angle: value * 3.14159 / 4,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.15),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: _toggleFilterOverlay,
+                child: Padding(
+                  padding: EdgeInsets.all(10.w),
+                  child: Icon(
+                    _isFilterOverlayVisible ? Icons.close : Icons.filter_list,
+                    color: Theme.of(context).primaryColor,
+                    size: 20.sp,
+                  ),
+                ),
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
   Widget _buildSearchBar() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24.r),
-        boxShadow: const [_defaultBoxShadow],
-      ),
-      child: TextField(
-        controller: _searchController,
-        textAlign: TextAlign.right,
-        textInputAction: TextInputAction.search,
-        onSubmitted: _onSearchSubmitted,
-        onChanged: (value) {
-          if (value.isEmpty) {
-            _cubit.clearFilters();
-          }
-        },
-        decoration: InputDecoration(
-          hintText: 'ابحث عن مركز صحي...',
-          hintStyle: TextStyle(fontSize: 13.sp, color: Colors.grey[400]),
-          border: InputBorder.none,
-          contentPadding: EdgeInsets.symmetric(
-            horizontal: _topBarPadding.w,
-            vertical: 12.h,
+    return SizedBox(
+      height: 42.h,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.95),
+          borderRadius: BorderRadius.circular(22.r),
+          border: Border.all(
+            color: Colors.white.withOpacity(0.3),
+            width: 1,
           ),
-          prefixIcon: Icon(Icons.search, size: 20.sp, color: Colors.grey),
-          suffixIcon: _searchController.text.isNotEmpty
-              ? IconButton(
-                  icon: const Icon(Icons.clear),
-                  onPressed: () {
-                    _searchController.clear();
-                    _cubit.clearFilters();
-                  },
-                )
-              : null,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.12),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: TextField(
+          controller: _searchController,
+          textAlign: TextAlign.right,
+          textInputAction: TextInputAction.search,
+          onSubmitted: _onSearchSubmitted,
+          onChanged: (value) {
+            setState(() {});
+            if (value.isEmpty) {
+              _cubit.clearFilters();
+            }
+          },
+          style: TextStyle(
+            fontSize: 13.sp,
+            color: Colors.grey[800],
+            fontWeight: FontWeight.w500,
+          ),
+          cursorColor: Theme.of(context).primaryColor,
+          decoration: InputDecoration(
+            hintText: context.tr('search_hint'),
+            hintStyle: TextStyle(
+              fontSize: 12.sp,
+              color: Colors.grey[400],
+              fontWeight: FontWeight.w400,
+            ),
+            border: InputBorder.none,
+            contentPadding: EdgeInsets.symmetric(
+              horizontal: 14.w,
+              vertical: 10.h,
+            ),
+            prefixIcon: Padding(
+              padding: EdgeInsets.only(left: 12.w, right: 4.w),
+              child: Icon(
+                Icons.search,
+                size: 20.sp,
+                color: Theme.of(context).primaryColor.withOpacity(0.6),
+              ),
+            ),
+            suffixIcon: _searchController.text.isNotEmpty
+                ? Padding(
+                    padding: EdgeInsets.only(right: 4.w),
+                    child: IconButton(
+                      icon: Icon(
+                        Icons.clear_rounded,
+                        size: 18.sp,
+                        color: Colors.grey[400],
+                      ),
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() {});
+                        _cubit.clearFilters();
+                      },
+                      splashRadius: 20,
+                    ),
+                  )
+                : null,
+          ),
         ),
       ),
     );
@@ -421,14 +605,17 @@ class _MapDataState extends State<MapData> with WidgetsBindingObserver {
   Widget _buildFilterOverlay() {
     return AnimatedPositioned(
       duration: _animationDuration,
-      top: _isFilterOverlayVisible
-          ? _filterOverlayVisibleOffset.h
-          : _filterOverlayInitialOffset.h,
+      curve: Curves.easeOutCubic,
+      top: _isFilterOverlayVisible ? 120.h : -220.h,
       left: _topBarPadding.w,
       right: _topBarPadding.w,
-      child: _isFilterOverlayVisible
-          ? _FilterOverlayWidget(cubit: _cubit)
-          : const SizedBox.shrink(),
+      child: AnimatedOpacity(
+        opacity: _isFilterOverlayVisible ? 1.0 : 0.0,
+        duration: _animationDuration,
+        child: _isFilterOverlayVisible
+            ? _FilterOverlayWidget(cubit: _cubit)
+            : const SizedBox.shrink(),
+      ),
     );
   }
 
@@ -469,12 +656,14 @@ class _MapDataState extends State<MapData> with WidgetsBindingObserver {
     return FloatingActionButton(
       heroTag: 'legend_btn',
       backgroundColor: Colors.white,
-      elevation: 4,
+      elevation: 6,
+      highlightElevation: 8,
       mini: true,
       onPressed: _toggleLegend,
       child: Icon(
         _showLegend ? Icons.close : Icons.info_outline,
         color: Theme.of(context).primaryColor,
+        size: 22.sp,
       ),
     );
   }
@@ -482,7 +671,8 @@ class _MapDataState extends State<MapData> with WidgetsBindingObserver {
   Widget _buildLocationButton() {
     return FloatingActionButton(
       heroTag: 'location_btn',
-      elevation: 4,
+      elevation: 6,
+      highlightElevation: 8,
       onPressed: () {
         if (_currentLocation != null) {
           _animateToLocation(_currentLocation!);
@@ -491,8 +681,9 @@ class _MapDataState extends State<MapData> with WidgetsBindingObserver {
         }
       },
       child: Icon(
-        _isLocationLoading ? null : Icons.my_location,
+        _isLocationLoading ? Icons.gps_not_fixed : Icons.my_location,
         color: Colors.white,
+        size: 24.sp,
       ),
     );
   }
@@ -513,7 +704,7 @@ class _MapDataState extends State<MapData> with WidgetsBindingObserver {
           ),
           SizedBox(height: 16.h),
           Text(
-            'جاري تحميل المراكز الطبية...',
+            context.tr('loading_centers'),
             style: TextStyle(fontSize: 14.sp, color: Colors.grey[600]),
           ),
         ],
@@ -547,7 +738,7 @@ class _MapDataState extends State<MapData> with WidgetsBindingObserver {
             ),
             SizedBox(width: 8.w),
             Text(
-              'جاري تحديد الموقع...',
+              context.tr('location_loading'),
               style: TextStyle(fontSize: 12.sp, color: Colors.grey[700]),
             ),
           ],
@@ -569,11 +760,17 @@ class _FilterOverlayWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.all(12.w),
+      padding: EdgeInsets.all(14.w),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16.r),
-        boxShadow: const [_defaultBoxShadow],
+        borderRadius: BorderRadius.circular(18.r),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.15),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: BlocBuilder<MapProvidersCubit, MapProvidersState>(
         builder: (context, state) {
@@ -589,24 +786,25 @@ class _FilterOverlayWidget extends StatelessWidget {
             children: [
               // Header
               Padding(
-                padding: EdgeInsets.only(bottom: 8.h),
+                padding: EdgeInsets.only(bottom: 10.h),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
                       selectedCount > 0
-                          ? 'تم تحديد $selectedCount نوع'
-                          : 'تصفية حسب النوع',
+                          ? context.trWithCount('selected_count', selectedCount)
+                          : context.tr('filter_by_type'),
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 13.sp,
+                        color: Colors.grey[800],
                       ),
                     ),
                     if (selectedCount > 0)
                       GestureDetector(
                         onTap: () => cubit.clearFilters(),
                         child: Text(
-                          'إعادة تعيين',
+                          context.tr('reset_filters'),
                           style: TextStyle(
                             fontSize: 12.sp,
                             color: Theme.of(context).primaryColor,
@@ -618,14 +816,14 @@ class _FilterOverlayWidget extends StatelessWidget {
                 ),
               ),
               const Divider(height: 1),
-              SizedBox(height: 8.h),
+              SizedBox(height: 10.h),
               // Filter chips
               Wrap(
-                spacing: _filterChipSpacing.w,
-                runSpacing: _filterChipSpacing.h,
+                spacing: 8.w,
+                runSpacing: 8.h,
                 children: [
                   _buildFilterChip(
-                    'الكل',
+                    context.tr('all_types'),
                     state.selectedTypes.isEmpty,
                     () => cubit.clearFilters(),
                     context,
@@ -701,7 +899,7 @@ class _LegendWidget extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'دليل الرموز',
+                context.tr('legend_title'),
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 14.sp,
@@ -832,7 +1030,7 @@ class _ProviderDetailsSheet extends StatelessWidget {
                     child: ElevatedButton.icon(
                       onPressed: () => _launchUrl('tel:${provider.phone}'),
                       icon: const Icon(Icons.call),
-                      label: const Text('اتصال'),
+                      label: Text(context.tr('call_button')),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.green,
                         foregroundColor: Colors.white,
@@ -844,7 +1042,7 @@ class _ProviderDetailsSheet extends StatelessWidget {
                     child: ElevatedButton.icon(
                       onPressed: () => _launchUrl(provider.mapUrl),
                       icon: const Icon(Icons.map),
-                      label: const Text('الموقع'),
+                      label: Text(context.tr('location_button')),
                     ),
                   ),
                 ],
@@ -1089,12 +1287,12 @@ class _LocationService {
     showDialog(
       context: context,
       builder: (BuildContext context) => AlertDialog(
-        title: const Text('خدمات الموقع معطلة'),
-        content: const Text('يرجى تفعيل خدمات الموقع لاستخدام هذه الميزة'),
+        title: Text(context.tr('location_disabled_title')),
+        content: Text(context.tr('location_disabled_msg')),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('حسناً'),
+            child: Text(context.tr('ok')),
           ),
         ],
       ),
@@ -1105,21 +1303,19 @@ class _LocationService {
     showDialog(
       context: context,
       builder: (BuildContext context) => AlertDialog(
-        title: const Text('إذن الموقع'),
-        content: const Text(
-          'يرجى منح إذن الوصول إلى الموقع من إعدادات التطبيق',
-        ),
+        title: Text(context.tr('location_permission_title')),
+        content: Text(context.tr('location_permission_msg')),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('حسناً'),
+            child: Text(context.tr('ok')),
           ),
           TextButton(
             onPressed: () {
               Geolocator.openLocationSettings();
               Navigator.of(context).pop();
             },
-            child: const Text('الإعدادات'),
+            child: Text(context.tr('settings')),
           ),
         ],
       ),

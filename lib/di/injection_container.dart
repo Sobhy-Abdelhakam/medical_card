@@ -3,6 +3,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/network/api_client.dart';
 import '../core/network/network_info.dart';
+import '../features/auth/data/datasources/auth_local_datasource.dart';
+import '../features/auth/data/datasources/auth_remote_datasource.dart';
+import '../features/auth/data/repositories/auth_repository_impl.dart';
+import '../features/auth/domain/repositories/auth_repository.dart';
+import '../features/auth/presentation/cubit/auth/auth_cubit.dart';
 import '../features/intro/data/repositories/intro_repository_impl.dart';
 import '../features/intro/domain/repositories/intro_repository.dart';
 import '../features/intro/presentation/cubit/splash/splash_cubit.dart';
@@ -43,8 +48,33 @@ Future<void> initDependencies() async {
     ),
   );
 
-  // Features - Intro
-  sl.registerFactory(() => SplashCubit(repository: sl()));
+  // ===== FEATURES - AUTH =====
+
+  // Data Sources
+  sl.registerLazySingleton<AuthRemoteDataSource>(
+    () => AuthRemoteDataSourceImpl(apiClient: sl()),
+  );
+  sl.registerLazySingleton<AuthLocalDataSource>(
+    () => AuthLocalDataSourceImpl(sharedPreferences: sl()),
+  );
+
+  // Repository
+  sl.registerLazySingleton<AuthRepository>(
+    () => AuthRepositoryImpl(
+      remoteDataSource: sl(),
+      localDataSource: sl(),
+      networkInfo: sl(),
+    ),
+  );
+
+  // Cubit
+  sl.registerFactory(() => AuthCubit(repository: sl()));
+
+  // ===== FEATURES - INTRO =====
+  sl.registerFactory(() => SplashCubit(
+        repository: sl(),
+        authRepository: sl(),
+      ));
   sl.registerLazySingleton<IntroRepository>(
       () => IntroRepositoryImpl(apiClient: sl(), sharedPreferences: sl()));
 

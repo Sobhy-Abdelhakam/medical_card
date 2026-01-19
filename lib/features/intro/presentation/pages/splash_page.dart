@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../di/injection_container.dart';
 import '../../../app/presentation/pages/main_app_shell.dart';
+import '../../../auth/presentation/pages/login_page.dart';
 import '../../presentation/cubit/splash/splash_cubit.dart';
 import '../../presentation/cubit/splash/splash_state.dart';
 import 'welcome_page.dart';
@@ -53,6 +54,11 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const WelcomePage()),
+      );
+    } else if (state is SplashNavigateToLogin) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const LoginPage()),
       );
     }
   }
