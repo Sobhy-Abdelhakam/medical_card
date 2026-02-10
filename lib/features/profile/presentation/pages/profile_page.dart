@@ -1,11 +1,11 @@
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -141,10 +141,13 @@ class _ProfileState extends State<Profile> {
 
       final file = File('${targetDir.path}/medical_card_$memberId.png');
       
-      final httpClient = HttpClient();
-      final request = await httpClient.getUrl(Uri.parse(url));
-      final response = await request.close();
-      final bytes = await consolidateHttpClientResponseBytes(response);
+      final dio = Dio();
+      final response = await dio.get<List<int>>(
+        url,
+        options: Options(responseType: ResponseType.bytes),
+      );
+
+      final bytes = response.data ?? <int>[];
       // Debugging requirements
       // ignore: avoid_print
       print('[DOWNLOAD] status=${response.statusCode} bytes=${bytes.length}');
