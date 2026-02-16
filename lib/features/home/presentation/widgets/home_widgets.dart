@@ -5,8 +5,9 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 class HomeHeader extends StatelessWidget {
   final String userName;
+  final int? templateId;
 
-  const HomeHeader({super.key, required this.userName});
+  const HomeHeader({super.key, required this.userName, this.templateId});
 
   @override
   Widget build(BuildContext context) {
@@ -52,15 +53,30 @@ class HomeHeader extends StatelessWidget {
                     ),
                   ],
                 ),
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
-                    shape: BoxShape.circle,
-                  ),
-                  child: IconButton(
-                    icon: const Icon(Icons.notifications_outlined, color: Colors.white),
-                    onPressed: () {},
-                  ),
+                Row(
+                  children: [
+                    if (templateId == 7)
+                      Padding(
+                        padding: EdgeInsets.only(right: 12.w),
+                        child: CircleAvatar(
+                          radius: 22.r,
+                          backgroundColor: Colors.white,
+                          backgroundImage:
+                              const AssetImage('assets/images/zamalik.jpeg'),
+                        ),
+                      ),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: IconButton(
+                        icon: const Icon(Icons.notifications_outlined,
+                            color: Colors.white),
+                        onPressed: () {},
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -181,7 +197,8 @@ class QuickActionCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                Icon(Icons.arrow_forward_ios, color: Colors.grey[400], size: 16.w),
+                Icon(Icons.arrow_forward_ios,
+                    color: Colors.grey[400], size: 16.w),
               ],
             ),
           ),
@@ -246,7 +263,8 @@ class TopProviderCardHome extends StatelessWidget {
   final TopProviderEntity provider;
   final VoidCallback onTap;
 
-  const TopProviderCardHome({super.key, required this.provider, required this.onTap});
+  const TopProviderCardHome(
+      {super.key, required this.provider, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -275,16 +293,16 @@ class TopProviderCardHome extends StatelessWidget {
               ClipRRect(
                 borderRadius: BorderRadius.vertical(top: Radius.circular(16.r)),
                 child: Container(
-                   height: 100.h,
-                   width: double.infinity,
-                   color: Colors.grey[100],
-                   child: Center(
-                     child: Image.asset(
-                       'assets/images/logo.jpg',
-                       width: 60.w,
-                       opacity: const AlwaysStoppedAnimation(0.5),
-                     ),
-                   ),
+                  height: 100.h,
+                  width: double.infinity,
+                  color: Colors.grey[100],
+                  child: Center(
+                    child: Image.asset(
+                      'assets/images/logo.jpg',
+                      width: 60.w,
+                      opacity: const AlwaysStoppedAnimation(0.5),
+                    ),
+                  ),
                 ),
               ),
               Padding(

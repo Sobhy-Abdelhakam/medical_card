@@ -66,14 +66,16 @@ class _HomePageState extends State<HomePage> {
         body: BlocBuilder<AuthCubit, AuthState>(
           builder: (context, authState) {
             String userName = context.tr('guest');
+            int? templateId;
             if (authState is AuthAuthenticated) {
               userName = authState.member.memberName;
+              templateId = authState.member.templateId;
             }
 
             return CustomScrollView(
               slivers: [
                 SliverToBoxAdapter(
-                  child: HomeHeader(userName: userName),
+                  child: HomeHeader(userName: userName, templateId: templateId),
                 ),
                 SliverToBoxAdapter(
                   child: SizedBox(height: 16.h),
