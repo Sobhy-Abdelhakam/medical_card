@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:euro_medical_card/core/localization/app_localizations.dart';
 import 'package:euro_medical_card/features/providers/domain/entities/top_provider_entity.dart';
 import 'package:flutter/material.dart';
@@ -295,14 +296,33 @@ class TopProviderCardHome extends StatelessWidget {
                 child: Container(
                   height: 100.h,
                   width: double.infinity,
-                  color: Colors.grey[100],
-                  child: Center(
-                    child: Image.asset(
-                      'assets/images/logo.jpg',
-                      width: 60.w,
-                      opacity: const AlwaysStoppedAnimation(0.5),
-                    ),
-                  ),
+                  color: Colors.white,
+                  child: provider.logoUrl.isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl: provider.logoUrl,
+                          fit: BoxFit.contain,
+                          placeholder: (context, url) => Center(
+                            child: SizedBox(
+                              width: 30.w,
+                              height: 30.w,
+                              child: const CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          ),
+                          errorWidget: (context, url, error) => Center(
+                            child: Image.asset(
+                              'assets/images/logo.jpg',
+                              width: 60.w,
+                              opacity: const AlwaysStoppedAnimation(0.5),
+                            ),
+                          ),
+                        )
+                      : Center(
+                          child: Image.asset(
+                            'assets/images/logo.jpg',
+                            width: 60.w,
+                            opacity: const AlwaysStoppedAnimation(0.5),
+                          ),
+                        ),
                 ),
               ),
               Padding(
