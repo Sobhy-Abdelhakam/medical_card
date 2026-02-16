@@ -107,9 +107,8 @@ class _ProfileState extends State<Profile> {
       print(
           '[DOWNLOAD] permission storage=$storageStatus photos=$photosStatus');
 
-      final hasPermission = storageStatus.isGranted ||
-          photosStatus.isGranted ||
-          Platform.isIOS;
+      final hasPermission =
+          storageStatus.isGranted || photosStatus.isGranted || Platform.isIOS;
 
       if (!hasPermission) {
         if (mounted) {
@@ -124,15 +123,16 @@ class _ProfileState extends State<Profile> {
       }
 
       // Download image bytes
-      final url = 'http://euroassist.3utilities.com:5001/debug/card-raw/$memberId';
+      final url = 'http://euro-assist.ddns.net:5001/debug/card-raw/$memberId';
       // ignore: avoid_print
       print('[DOWNLOAD] url=$url');
-      
+
       // Save to app-specific external directory on Android (no shared Downloads dependency)
       final Directory? baseDir = Platform.isAndroid
           ? await getExternalStorageDirectory()
           : await getApplicationDocumentsDirectory();
-      if (baseDir == null) throw Exception('Could not access storage directory');
+      if (baseDir == null)
+        throw Exception('Could not access storage directory');
 
       final targetDir = Directory('${baseDir.path}/EuroMedicalCard');
       if (!await targetDir.exists()) {
@@ -140,7 +140,7 @@ class _ProfileState extends State<Profile> {
       }
 
       final file = File('${targetDir.path}/medical_card_$memberId.png');
-      
+
       final dio = Dio();
       final response = await dio.get<List<int>>(
         url,
@@ -161,7 +161,7 @@ class _ProfileState extends State<Profile> {
       // Debugging requirements
       // ignore: avoid_print
       print('[DOWNLOAD] saved path=${file.path} bytes=${bytes.length}');
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -320,7 +320,7 @@ class _ProfileState extends State<Profile> {
   }
 
   Widget _buildCardPreview(int memberId) {
-    final cardUrl = 'http://euroassist.3utilities.com:5001/debug/card-raw/$memberId';
+    final cardUrl = 'http://euro-assist.ddns.net:5001/debug/card-raw/$memberId';
     // Debugging requirements
     // ignore: avoid_print
     print('[PROFILE] cardUrl=$cardUrl');
@@ -638,5 +638,4 @@ class _ProfileState extends State<Profile> {
       ),
     );
   }
-
 }

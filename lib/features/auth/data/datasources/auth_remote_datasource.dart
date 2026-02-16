@@ -13,8 +13,7 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
 
   @override
   Future<MemberModel> getMember(String membershipNumber) async {
-    final url =
-        'http://euroassist.3utilities.com:5001/api/member/$membershipNumber';
+    final url = 'http://euro-assist.ddns.net:5001/api/member/$membershipNumber';
     final response = await apiClient.get(url);
 
     // Debugging requirements
@@ -38,4 +37,3 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
     return model;
   }
 }
-
