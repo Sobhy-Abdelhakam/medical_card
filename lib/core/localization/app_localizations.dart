@@ -16,10 +16,19 @@ class AppLocalizations {
       'app_name': 'Euro Medical Card',
 
       // Bottom Navigation
+      'nav_home': 'الرئيسية',
       'nav_map': 'الخريطة',
       'nav_providers': 'المراكز الطبية',
       'nav_partners': 'شركاؤنا',
       'nav_profile': 'ملفي الشخصي',
+
+      // Home Screen
+      'home_welcome': 'مرحباً،',
+      'home_find_on_map': 'البحث على الخريطة',
+      'home_map_subtitle': 'تحديد مواقع أقرب مقدمي الخدمة',
+      'home_medical_network': 'الشبكة الطبية',
+      'home_partners': 'شركاؤنا',
+      'see_all': 'عرض الكل',
 
       // Map Screen
       'welcome_back': 'مرحباً!',
@@ -80,10 +89,19 @@ class AppLocalizations {
       'app_name': 'Euro Medical Card',
 
       // Bottom Navigation
+      'nav_home': 'Home',
       'nav_map': 'Map',
       'nav_providers': 'Providers',
       'nav_partners': 'Partners',
       'nav_profile': 'Profile',
+
+      // Home Screen
+      'home_welcome': 'Welcome,',
+      'home_find_on_map': 'Find on Map',
+      'home_map_subtitle': 'Locate nearest medical providers',
+      'home_medical_network': 'Medical Network',
+      'home_partners': 'Our Partners',
+      'see_all': 'See All',
 
       // Map Screen
       'welcome_back': 'Welcome Back!',

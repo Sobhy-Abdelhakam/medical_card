@@ -1,4 +1,5 @@
 import 'package:euro_medical_card/core/localization/app_localizations.dart';
+import 'package:euro_medical_card/features/home/presentation/pages/home_page.dart';
 import 'package:euro_medical_card/features/map/presentation/pages/map_page.dart';
 import 'package:euro_medical_card/features/profile/presentation/pages/profile_page.dart';
 import 'package:euro_medical_card/features/providers/presentation/pages/medical_network_page.dart';
@@ -18,19 +19,20 @@ class MainAppShell extends StatefulWidget {
 
 class _MainAppShellState extends State<MainAppShell> {
   int _selectedIndex = 0;
-
-  final List<Widget> _pages = [
-    const MapData(),
-    const MedicalNetworkPage(),
-    const PartnersPage(),
-    const Profile(),
-  ];
+  late final List<Widget> _pages;
 
   final Set<int> _visitedIndices = {0};
 
   @override
   void initState() {
     super.initState();
+    _pages = [
+      HomePage(onTabChange: _onItemTapped),
+      const MapData(),
+      const MedicalNetworkPage(),
+      const PartnersPage(),
+      const Profile(),
+    ];
     // Ensure the initial page is marked as visited
     _visitedIndices.add(_selectedIndex);
   }
@@ -52,42 +54,42 @@ class _MainAppShellState extends State<MainAppShell> {
 
     return Scaffold(
       extendBody: true,
-      appBar: isLandscape
-          ? null
-          : _selectedIndex == 0
-              ? null
-              : AppBar(
-                  backgroundColor: Theme.of(context).colorScheme.primary,
-                  elevation: 3,
-                  shape: const RoundedRectangleBorder(
-                    borderRadius: BorderRadius.vertical(
-                      bottom: Radius.circular(16),
-                    ),
-                  ),
-                  title: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Image.asset(
-                        'assets/icons/logo.png',
-                        color: Colors.white,
-                        width: 35,
-                        height: 35,
-                      ),
-                      const SizedBox(width: 3),
-                      const Text(
-                        'Euro Medical Card',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 20,
-                          letterSpacing: 0.3,
-                        ),
-                      ),
-                    ],
-                  ),
-                  centerTitle: true,
-                  foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                ),
+      // appBar: isLandscape
+      //     ? null
+      //     : _selectedIndex == 0
+      //         ? null
+      //         : AppBar(
+      //             backgroundColor: Theme.of(context).colorScheme.primary,
+      //             elevation: 3,
+      //             shape: const RoundedRectangleBorder(
+      //               borderRadius: BorderRadius.vertical(
+      //                 bottom: Radius.circular(16),
+      //               ),
+      //             ),
+      //             title: Row(
+      //               mainAxisSize: MainAxisSize.min,
+      //               children: [
+      //                 Image.asset(
+      //                   'assets/icons/logo.png',
+      //                   color: Colors.white,
+      //                   width: 35,
+      //                   height: 35,
+      //                 ),
+      //                 const SizedBox(width: 3),
+      //                 const Text(
+      //                   'Euro Medical Card',
+      //                   style: TextStyle(
+      //                     color: Colors.white,
+      //                     fontWeight: FontWeight.w600,
+      //                     fontSize: 20,
+      //                     letterSpacing: 0.3,
+      //                   ),
+      //                 ),
+      //               ],
+      //             ),
+      //             centerTitle: true,
+      //             foregroundColor: Theme.of(context).colorScheme.onPrimary,
+      //           ),
       body: AnimatedSwitcher(
         duration: const Duration(milliseconds: 300),
         child: IndexedStack(
@@ -127,6 +129,11 @@ class _MainAppShellState extends State<MainAppShell> {
             iconSize: iconSize,
             onTap: _onItemTapped,
             items: [
+              BottomNavigationBarItem(
+                icon: const Icon(Icons.home_outlined),
+                activeIcon: const Icon(Icons.home),
+                label: context.tr('nav_home'),
+              ),
               BottomNavigationBarItem(
                 icon: const Icon(Icons.map_outlined),
                 activeIcon: const Icon(Icons.map),
