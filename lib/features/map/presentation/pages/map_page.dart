@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -71,6 +72,7 @@ class _MapDataState extends State<MapData> with WidgetsBindingObserver {
   bool _isFilterExpanded = false;
   bool _showLegend = false;
   bool _isLocationLoading = false;
+  bool _isMapReadyForiOS = false; // Guard for iOS platform view race condition
 
   // Memoization Cache for diffing
   Set<Marker> _currentMarkers = {};
@@ -91,6 +93,15 @@ class _MapDataState extends State<MapData> with WidgetsBindingObserver {
 
     // 1. NON-BLOCKING Initialization
     _startParallelInitialization();
+
+    // iOS Platform View Fix: Delay rendering slightly to ensure view hierarchy is ready
+    if (Platform.isIOS) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) setState(() => _isMapReadyForiOS = true);
+      });
+    } else {
+      _isMapReadyForiOS = true;
+    }
   }
 
   void _startParallelInitialization() {
@@ -352,6 +363,10 @@ class _MapDataState extends State<MapData> with WidgetsBindingObserver {
         // This ensures markers persist during loading/rebuilds
         final markers = _currentMarkers;
         // If loading, we just use _currentMarkers, effectively persisting them.
+
+        if (!_isMapReadyForiOS) {
+          return const SizedBox(); // Prevent blank/glitchy map on iOS startup
+        }
 
         return GoogleMap(
           initialCameraPosition: CameraPosition(

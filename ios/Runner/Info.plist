@@ -53,5 +53,12 @@
 	<string>This app needs your location to show nearby medical providers on the map.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
 	<string>This app needs your location to show nearby medical providers, even when the app is in the background.</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>googlechromes</string>
+		<string>comgooglemaps</string>
+		<string>tel</string>
+		<string>https</string>
+	</array>
 </dict>
 </plist>
