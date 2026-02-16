@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../../../../core/constants/api_constants.dart';
 import '../../../../core/error/exceptions.dart';
 import '../../../../core/network/api_client.dart';
@@ -133,15 +135,21 @@ class ProvidersRemoteDataSourceImpl implements ProvidersRemoteDataSource {
       throw const ParseException(message: 'Unexpected response format');
     }
 
-    final providers = dataList
+    // Use isolate for parsing large lists
+    final providers = await compute(_parseProviders, dataList);
+
+    return (providers: providers, pagination: pagination);
+  }
+
+  // Static function for compute
+  static List<ProviderModel> _parseProviders(List<dynamic> dataList) {
+    return dataList
         .map((item) => ProviderModel.fromJson(
               item is Map<String, dynamic>
                   ? item
                   : Map<String, dynamic>.from(item as Map),
             ))
         .toList();
-
-    return (providers: providers, pagination: pagination);
   }
 
   @override
@@ -179,13 +187,8 @@ class ProvidersRemoteDataSourceImpl implements ProvidersRemoteDataSource {
     final dataList = data['data'] as List<dynamic>? ?? [];
     final metaJson = data['meta'] as Map<String, dynamic>?;
 
-    final providers = dataList
-        .map((item) => ProviderModel.fromJson(
-              item is Map<String, dynamic>
-                  ? item
-                  : Map<String, dynamic>.from(item as Map),
-            ))
-        .toList();
+    // Use isolate for parsing search results
+    final providers = await compute(_parseProviders, dataList);
 
     final pagination =
         metaJson != null ? PaginationModel.fromMeta(metaJson) : null;

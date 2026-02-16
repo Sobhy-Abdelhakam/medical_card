@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -11,7 +12,6 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/localization/app_localizations.dart';
 import '../../../../di/injection_container.dart';
-import '../../../auth/domain/repositories/auth_repository.dart';
 import '../../../providers/domain/entities/provider_entity.dart';
 import '../../../providers/presentation/cubit/map_providers/map_providers_cubit.dart';
 
@@ -19,38 +19,19 @@ import '../../../providers/presentation/cubit/map_providers/map_providers_cubit.
 // CONSTANTS & CONFIGURATION
 // ============================================================================
 
-// Map configuration
 const double _defaultMapZoom = 12.0;
-const double _markerZoomLevel = 14.0;
+const double _markerZoomLevel = 14.5;
 const double _defaultLatitude = 30.0444;
 const double _defaultLongitude = 31.2357;
 
-// Animation & timing
-const int _animationDurationMs = 300;
-const int _debounceDelayMs = 500;
-const Duration _animationDuration =
-    Duration(milliseconds: _animationDurationMs);
-const Duration _debounceDuration = Duration(milliseconds: _debounceDelayMs);
+const Duration _animationDuration = Duration(milliseconds: 300);
+const Duration _debounceDuration = Duration(milliseconds: 400);
 
-// Icon sizes
-const double _iconDefaultSize = 80.0;
-const double _iconSelectedSize = 100.0;
-const double _iconBorderWidth = 4.0;
+// Use slightly larger icons for better visibility on high-DPI screens
+const double _iconSizeNormal = 100.0;
+const double _iconSizeSelected = 130.0;
+const double _iconBorderWidth = 5.0;
 
-// Spacing & padding
-const double _filterChipSpacing = 8.0;
-const double _topBarPadding = 16.0;
-const double _bottomButtonSpacing = 12.0;
-const double _bottomPadding = 24.0;
-
-// Shadow configuration
-const BoxShadow _defaultBoxShadow = BoxShadow(
-  color: Colors.black26,
-  blurRadius: 8.0,
-  offset: Offset(0, 2),
-);
-
-/// Provider type icons and colors mapping
 const Map<String, Map<String, dynamic>> _typeIconMap = {
   'صيدلية': {'icon': Icons.local_pharmacy, 'color': Colors.green},
   'مستشفى': {'icon': Icons.local_hospital, 'color': Colors.red},
@@ -66,7 +47,6 @@ const Map<String, Map<String, dynamic>> _typeIconMap = {
 // MAIN WIDGET
 // ============================================================================
 
-/// Professional map screen displaying healthcare providers
 class MapData extends StatefulWidget {
   const MapData({super.key});
 
@@ -75,27 +55,32 @@ class MapData extends StatefulWidget {
 }
 
 class _MapDataState extends State<MapData> with WidgetsBindingObserver {
-  // Cubits & Services
+  // Logic & Services
   late final MapProvidersCubit _cubit;
   late final _MapIconCache _iconCache;
 
-  // Map Controller
-  GoogleMapController? _mapController;
-
   // Controllers
+  GoogleMapController? _mapController;
   final TextEditingController _searchController = TextEditingController();
+  Timer? _searchDebounceTimer;
 
-  // State variables
-  LatLng? _currentLocation;
-  bool _isFilterOverlayVisible = false;
+  // Local State
+  LatLng? _currentLocation; // User's location
+  bool _areIconsReady =
+      false; // Prevents markers from showing before icons are ready
+  bool _isFilterExpanded = false;
   bool _showLegend = false;
   bool _isLocationLoading = false;
-  bool _isMapReady = false;
-  String? _memberName;
-  int? _templateId;
 
-  // Timers
-  Timer? _searchDebounceTimer;
+  // Memoization Cache for diffing
+  Set<Marker> _currentMarkers = {};
+  List<ProviderEntity>? _lastFilteredProviders;
+  ProviderEntity? _lastSelectedProvider;
+
+  // Helpers
+  Timer? _batchTimer;
+  int _bachedIndex = 0;
+  static const int _batchSize = 40; // Process 40 markers per frame (~1-2ms)
 
   @override
   void initState() {
@@ -103,147 +88,169 @@ class _MapDataState extends State<MapData> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _cubit = sl<MapProvidersCubit>();
     _iconCache = _MapIconCache();
-    _loadMemberInfo();
-    // Defer initialization to next frame to allow UI to render first
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initializeScreen();
-    });
+
+    // 1. NON-BLOCKING Initialization
+    _startParallelInitialization();
   }
 
-  /// Load member info for welcome banner
-  Future<void> _loadMemberInfo() async {
-    final authRepository = sl<AuthRepository>();
-    final member = await authRepository.getCurrentMember();
-    // Debugging requirements
-    // ignore: avoid_print
-    print(
-        '[MAP] loaded member for welcome: ${member?.memberId} "${member?.memberName}" templateId=${member?.templateId}');
-
-    if (member != null && mounted) {
-      setState(() {
-        _memberName = member.memberName;
-        _templateId = member.templateId;
-      });
-    }
-  }
-
-  /// Initialize the map screen with all necessary resources
-  Future<void> _initializeScreen() async {
-    await Future.wait([
-      _iconCache.generateTypeIcons(_typeIconMap),
-    ]);
-
-    if (mounted) {
-      _cubit.loadMapProviders();
-      _getCurrentLocation();
-
-      // Artificial delay to let the UI breathe before heavy map initialization
-      // This prevents the "Skipped frames" jank on startup
-      await Future.delayed(const Duration(milliseconds: 800));
+  void _startParallelInitialization() {
+    // Generate icons if not ready (uses static cache internally so it's fast if already done)
+    _iconCache.generateTypeIcons(_typeIconMap).then((_) {
       if (mounted) {
-        setState(() => _isMapReady = true);
-      }
-    }
-  }
-
-  /// Get current device location with error handling
-  Future<void> _getCurrentLocation() async {
-    if (!mounted) return;
-
-    setState(() => _isLocationLoading = true);
-
-    try {
-      final location = await _LocationService.getCurrentLocation(context);
-      if (mounted) {
-        setState(() => _isLocationLoading = false);
-        if (location != null) {
-          _setCurrentLocation(location);
-          if (_mapController != null && _isMapReady) {
-            _animateToLocation(location, zoom: _markerZoomLevel);
-          }
+        setState(() => _areIconsReady = true);
+        // If data was already loaded, trigger batching now
+        if (_cubit.state is MapProvidersLoaded) {
+          final state = _cubit.state as MapProvidersLoaded;
+          _scheduleMarkerBatch(state.filteredProviders, state.selectedProvider);
         }
       }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isLocationLoading = false);
-        debugPrint('Error getting location: $e');
-      }
-    }
-  }
-
-  /// Set current location and update state
-  void _setCurrentLocation(LatLng location) {
-    setState(() => _currentLocation = location);
-  }
-
-  /// Handle search input with debouncing
-  void _onSearchSubmitted(String query) {
-    _searchDebounceTimer?.cancel();
-
-    if (query.isEmpty) {
-      _cubit.clearFilters();
-      return;
-    }
-
-    _searchDebounceTimer = Timer(_debounceDuration, () {
-      _cubit.searchMapProviders(query);
-      FocusScope.of(context).unfocus();
     });
-  }
 
-  /// Animate camera to specific location
-  void _animateToLocation(
-    LatLng position, {
-    double zoom = _defaultMapZoom,
-  }) {
-    _mapController?.animateCamera(
-      CameraUpdate.newLatLngZoom(position, zoom),
-    );
-  }
-
-  /// Toggle filter overlay visibility with haptic feedback
-  void _toggleFilterOverlay() {
-    HapticFeedback.lightImpact();
-    setState(() => _isFilterOverlayVisible = !_isFilterOverlayVisible);
-  }
-
-  /// Toggle legend visibility
-  void _toggleLegend() {
-    HapticFeedback.lightImpact();
-    setState(() => _showLegend = !_showLegend);
-  }
-
-  /// Show error snackbar to user
-  void _showErrorSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-        duration: const Duration(seconds: 3),
-      ),
-    );
-  }
-
-  /// Show provider details modal
-  void _showProviderDetails(ProviderEntity provider) {
-    HapticFeedback.mediumImpact();
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _ProviderDetailsSheet(provider: provider),
-    ).whenComplete(() => _cubit.selectProvider(null));
+    _cubit.loadMapProviders();
+    _getCurrentLocation(animate: true);
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _batchTimer?.cancel();
     _searchDebounceTimer?.cancel();
     _cubit.close();
     _mapController?.dispose();
     _searchController.dispose();
-    _iconCache.dispose();
+    // _iconCache.dispose(); // Keep cache alive for re-entry
     super.dispose();
+  }
+
+  // --- Location Logic ---
+
+  Future<void> _getCurrentLocation({bool animate = false}) async {
+    if (!mounted) return;
+    setState(() => _isLocationLoading = true);
+
+    try {
+      final loc = await _LocationService.getCurrentLocation();
+      if (mounted) {
+        setState(() {
+          _isLocationLoading = false;
+          if (loc != null) _currentLocation = loc;
+        });
+
+        if (loc != null && animate && _mapController != null) {
+          _animateCamera(loc, zoom: _markerZoomLevel);
+        }
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLocationLoading = false);
+    }
+  }
+
+  void _animateCamera(LatLng target, {double zoom = _defaultMapZoom}) {
+    try {
+      _mapController?.animateCamera(CameraUpdate.newLatLngZoom(target, zoom));
+    } catch (e) {
+      debugPrint('Error animating camera: $e');
+    }
+  }
+
+  // --- Search Logic ---
+
+  void _onSearchChanged(String query) {
+    if (_searchDebounceTimer?.isActive ?? false) _searchDebounceTimer!.cancel();
+    _searchDebounceTimer = Timer(_debounceDuration, () {
+      if (query.isEmpty) {
+        _cubit.clearFilters();
+      } else {
+        _cubit.searchMapProviders(query);
+      }
+    });
+  }
+
+  // --- Marker Building (Optimized) ---
+
+  // --- Batched Marker Building ---
+
+  void _scheduleMarkerBatch(List<ProviderEntity> providers, ProviderEntity? selected) {
+    _batchTimer?.cancel();
+    
+    // Check if we really need to update (diffing)
+    if (providers == _lastFilteredProviders && selected == _lastSelectedProvider && _currentMarkers.isNotEmpty) {
+      return;
+    }
+
+    _lastFilteredProviders = providers;
+    _lastSelectedProvider = selected;
+    
+    // Reset
+    // Note: We do NOT clear _currentMarkers immediately to prevent flashing.
+    // We build a NEW set incrementally and replace at end? 
+    // OR add incrementally?
+    // "Markers appear progressively" -> Add incrementally.
+    
+    // If list changed significantly (e.g. filter), we might want to clear old ones.
+    // For now, let's start fresh for the new batch to ensure correctness.
+    final Set<Marker> newMarkers = {};
+    _bachedIndex = 0;
+
+    _batchTimer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+
+      final int start = _bachedIndex;
+      final int end = (start + _batchSize < providers.length) 
+          ? start + _batchSize 
+          : providers.length;
+
+      if (start >= providers.length) {
+        timer.cancel();
+        return;
+      }
+
+      // Generate batch
+      for (int i = start; i < end; i++) {
+        final provider = providers[i];
+        final isSelected = selected?.id == provider.id;
+        final type = provider.type;
+        
+        // Use cached icons (instant)
+        final icon = isSelected
+            ? (_iconCache.getSelectedIcon(type) ?? _iconCache.getDefaultSelectedIcon())
+            : (_iconCache.getIcon(type) ?? _iconCache.getDefaultIcon());
+
+        newMarkers.add(
+          Marker(
+            markerId: MarkerId(provider.id.toString()),
+            position: LatLng(provider.latitude ?? 0, provider.longitude ?? 0),
+            icon: icon ?? BitmapDescriptor.defaultMarker,
+            zIndex: isSelected ? 10.0 : 1.0,
+            anchor: const Offset(0.5, 0.5),
+            onTap: () {
+              _cubit.selectProvider(provider);
+              _showProviderDetails(provider);
+            },
+          ),
+        );
+      }
+
+      _bachedIndex = end;
+
+      // Update UI incrementally
+      setState(() {
+        // We replace the set entirely to ensure GoogleMaps picks up changes
+        // But since we are building `newMarkers` from scratch, we might want to 
+        // accumulate. 
+        // Strategy: 
+        // Frame 1: newMarkers has 50. _currentMarkers = 50.
+        // Frame 2: newMarkers has 100. _currentMarkers = 100.
+        _currentMarkers = Set.of(newMarkers); 
+      });
+
+      if (_bachedIndex >= providers.length) {
+        timer.cancel();
+      }
+    });
   }
 
   @override
@@ -251,172 +258,100 @@ class _MapDataState extends State<MapData> with WidgetsBindingObserver {
     return BlocProvider.value(
       value: _cubit,
       child: Scaffold(
-        appBar: _buildAppBar(),
+        resizeToAvoidBottomInset: false,
+        extendBodyBehindAppBar: true,
         body: Stack(
+          fit: StackFit.expand,
           children: [
-            _buildMap(),
-            _buildFilterOverlay(),
-            _buildLegend(),
-            _buildFloatingButtons(),
-            if (_isLocationLoading) _buildLocationLoadingOverlay(),
+            // 1. The Map (Background Layer)
+            _buildMapLayer(),
+
+            // 2. Search & Filters (Top Layer)
+            Align(
+              alignment: Alignment.topCenter,
+              child: SafeArea(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(16.w, 12.h, 16.w, 0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildFloatingSearchBar(),
+                      // Loading Indicator
+                      BlocBuilder<MapProvidersCubit, MapProvidersState>(
+                        builder: (context, state) {
+                          if (state is MapProvidersLoading) {
+                            return Padding(
+                              padding: EdgeInsets.only(top: 8.h),
+                              child: LinearProgressIndicator(
+                                minHeight: 2.h,
+                                backgroundColor: Colors.transparent,
+                                valueColor: AlwaysStoppedAnimation(
+                                    Theme.of(context).primaryColor),
+                              ),
+                            );
+                          }
+                          return const SizedBox.shrink();
+                        },
+                      ),
+                      AnimatedSize(
+                        duration: _animationDuration,
+                        curve: Curves.easeOutCubic,
+                        child: _isFilterExpanded
+                            ? Padding(
+                                padding: EdgeInsets.only(top: 12.h),
+                                child: _FilterChipsList(cubit: _cubit),
+                              )
+                            : const SizedBox.shrink(),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // 3. Floating Controls
+            Positioned(
+              bottom: 100.h,
+              right: 16.w,
+              child: _buildFloatingControls(),
+            ),
+
+            // 4. Legend
+            if (_showLegend)
+              Positioned(
+                bottom: 110.h,
+                left: 16.w,
+                child: _LegendWidget(
+                    onClose: () => setState(() => _showLegend = false)),
+              ),
           ],
         ),
       ),
     );
   }
 
-  /// Build professional app bar with welcome message and search
-  PreferredSizeWidget _buildAppBar() {
-    return PreferredSize(
-      preferredSize: Size.fromHeight(120.h),
-      child: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        automaticallyImplyLeading: false,
-        flexibleSpace: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Theme.of(context).primaryColor.withOpacity(0.95),
-                Theme.of(context).primaryColor.withOpacity(0.85),
-              ],
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Theme.of(context).primaryColor.withOpacity(0.3),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: SafeArea(
-            bottom: false,
-            child: Container(
-              padding: EdgeInsets.only(
-                left: _topBarPadding.w,
-                right: _topBarPadding.w,
-                top: 8.h,
-                bottom: 10.h,
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildWelcomeBannerCompact(),
-                  SizedBox(height: 8.h),
-                  _buildSearchAndFilterBar(),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// Compact welcome banner for app bar
-  Widget _buildWelcomeBannerCompact() {
-    final name =
-        (_memberName?.trim().isNotEmpty ?? false) ? _memberName! : 'Guest';
-    final hasAvatar = _templateId == 7;
-
-    return SizedBox(
-      height: 45.h,
-      child: Row(
-        children: [
-          if (hasAvatar)
-            Container(
-              width: 45.w,
-              height: 45.h, 
-              margin: EdgeInsets.symmetric(horizontal: 8.w),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(10.r),
-                border: Border.all(
-                  color: Colors.white.withOpacity(0.6),
-                  width: 1.5,
-                ),
-              ),
-              child: Image.asset(
-                'assets/images/zamalik.jpeg',
-                fit: BoxFit.contain,
-              ),
-            ),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  context.tr('welcome_back'),
-                  style: TextStyle(
-                    fontSize: 10.5.sp,
-                    fontWeight: FontWeight.w400,
-                    color: Colors.white.withOpacity(0.8),
-                    height: 1.0,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                SizedBox(height: 0.5.h),
-                Text(
-                  name,
-                  style: TextStyle(
-                    fontSize: 13.sp,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                    height: 1.0,
-                    letterSpacing: 0.3,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Search and filter bar for app bar
-  Widget _buildSearchAndFilterBar() {
-    return Row(
-      children: [
-        _buildFilterButton(),
-        SizedBox(width: _filterChipSpacing.w),
-        Expanded(child: _buildSearchBar()),
-      ],
-    );
-  }
-
-  // ========================================================================
-  // Map Widget
-  // ========================================================================
-
-  Widget _buildMap() {
+  Widget _buildMapLayer() {
     return BlocConsumer<MapProvidersCubit, MapProvidersState>(
       listener: (context, state) {
         if (state is MapProvidersError) {
-          _showErrorSnackBar(state.message);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(state.message), backgroundColor: Colors.red),
+          );
+        }
+        // Trigger batching when data changes
+        if (state is MapProvidersLoaded && _areIconsReady) {
+          _scheduleMarkerBatch(state.filteredProviders, state.selectedProvider);
         }
       },
+      // Only rebuild if switching between major states (Loading/Loaded/Error)
+      // Marker updates are handled by setState in _scheduleMarkerBatch
+      buildWhen: (previous, current) =>
+          current.runtimeType != previous.runtimeType,
       builder: (context, state) {
-        if (!_isMapReady) {
-          return _buildLoadingPlaceholder();
-        }
-
-        if (state is MapProvidersLoading) {
-          return _buildLoadingPlaceholder();
-        }
-
-        Set<Marker> markers = <Marker>{};
-        if (state is MapProvidersLoaded) {
-          markers = _buildMarkers(state);
-        }
+        // Use local state _currentMarkers regardless of Cubit state
+        // This ensures markers persist during loading/rebuilds
+        final markers = _currentMarkers;
+        // If loading, we just use _currentMarkers, effectively persisting them.
 
         return GoogleMap(
           initialCameraPosition: CameraPosition(
@@ -425,677 +360,570 @@ class _MapDataState extends State<MapData> with WidgetsBindingObserver {
             zoom: _defaultMapZoom,
           ),
           markers: markers,
-          onMapCreated: _onMapCreated,
-          myLocationEnabled: true,
-          myLocationButtonEnabled: false,
-          zoomControlsEnabled: false,
-          mapToolbarEnabled: false,
-          onTap: (_) => _cubit.selectProvider(null),
-        );
-      },
-    );
-  }
-
-  /// Callback when map is created
-  void _onMapCreated(GoogleMapController controller) {
-    _mapController = controller;
-    if (_currentLocation != null) {
-      _animateToLocation(_currentLocation!, zoom: _markerZoomLevel);
-    }
-  }
-
-  /// Build markers from provider list
-  Set<Marker> _buildMarkers(MapProvidersLoaded state) {
-    return state.filteredProviders.map((provider) {
-      final isSelected = state.selectedProvider?.id == provider.id;
-      final type = provider.type;
-      final icon = isSelected
-          ? (_iconCache.getSelectedIcon(type) ??
-              _iconCache.getDefaultSelectedIcon())
-          : (_iconCache.getIcon(type) ?? _iconCache.getDefaultIcon());
-
-      return Marker(
-        markerId: MarkerId(provider.id.toString()),
-        position: LatLng(
-          provider.latitude ?? _defaultLatitude,
-          provider.longitude ?? _defaultLongitude,
-        ),
-        icon: icon ?? BitmapDescriptor.defaultMarker,
-        zIndexInt: isSelected ? 10 : 1,
-        infoWindow: InfoWindow(
-          title: provider.name,
-          snippet: provider.type,
-        ),
-        onTap: () {
-          _cubit.selectProvider(provider);
-          _showProviderDetails(provider);
-        },
-      );
-    }).toSet();
-  }
-
-  // ========================================================================
-  // Filter Overlay
-  // ========================================================================
-
-  Widget _buildFilterButton() {
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: _isFilterOverlayVisible ? 1 : 0),
-      duration: _animationDuration,
-      builder: (context, value, child) {
-        return Transform.rotate(
-          angle: value * 3.14159 / 4,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.15),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                customBorder: const CircleBorder(),
-                onTap: _toggleFilterOverlay,
-                child: Padding(
-                  padding: EdgeInsets.all(10.w),
-                  child: Icon(
-                    _isFilterOverlayVisible ? Icons.close : Icons.filter_list,
-                    color: Theme.of(context).primaryColor,
-                    size: 20.sp,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildSearchBar() {
-    return SizedBox(
-      height: 42.h,
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.95),
-          borderRadius: BorderRadius.circular(22.r),
-          border: Border.all(
-            color: Colors.white.withOpacity(0.3),
-            width: 1,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.12),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: TextField(
-          controller: _searchController,
-          textAlign: TextAlign.right,
-          textInputAction: TextInputAction.search,
-          onSubmitted: _onSearchSubmitted,
-          onChanged: (value) {
-            setState(() {});
-            if (value.isEmpty) {
-              _cubit.clearFilters();
+          onMapCreated: (c) {
+            _mapController = c;
+            // Delay style setting or other heavy work if needed
+            if (_currentLocation != null) {
+              c.moveCamera(CameraUpdate.newLatLng(_currentLocation!));
             }
           },
-          style: TextStyle(
-            fontSize: 13.sp,
-            color: Colors.grey[800],
-            fontWeight: FontWeight.w500,
-          ),
-          cursorColor: Theme.of(context).primaryColor,
-          decoration: InputDecoration(
-            hintText: context.tr('search_hint'),
-            hintStyle: TextStyle(
-              fontSize: 12.sp,
-              color: Colors.grey[400],
-              fontWeight: FontWeight.w400,
-            ),
-            border: InputBorder.none,
-            contentPadding: EdgeInsets.symmetric(
-              horizontal: 14.w,
-              vertical: 10.h,
-            ),
-            prefixIcon: Padding(
-              padding: EdgeInsets.only(left: 12.w, right: 4.w),
-              child: Icon(
-                Icons.search,
-                size: 20.sp,
-                color: Theme.of(context).primaryColor.withOpacity(0.6),
-              ),
-            ),
-            suffixIcon: _searchController.text.isNotEmpty
-                ? Padding(
-                    padding: EdgeInsets.only(right: 4.w),
-                    child: IconButton(
-                      icon: Icon(
-                        Icons.clear_rounded,
-                        size: 18.sp,
-                        color: Colors.grey[400],
-                      ),
-                      onPressed: () {
-                        _searchController.clear();
-                        setState(() {});
-                        _cubit.clearFilters();
-                      },
-                      splashRadius: 20,
-                    ),
-                  )
-                : null,
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ========================================================================
-  // Filter Overlay
-  // ========================================================================
-
-  Widget _buildFilterOverlay() {
-    return AnimatedPositioned(
-      duration: _animationDuration,
-      curve: Curves.easeOutCubic,
-      top: _isFilterOverlayVisible ? 120.h : -220.h,
-      left: _topBarPadding.w,
-      right: _topBarPadding.w,
-      child: AnimatedOpacity(
-        opacity: _isFilterOverlayVisible ? 1.0 : 0.0,
-        duration: _animationDuration,
-        child: _isFilterOverlayVisible
-            ? _FilterOverlayWidget(cubit: _cubit)
-            : const SizedBox.shrink(),
-      ),
-    );
-  }
-
-  // ========================================================================
-  // Legend
-  // ========================================================================
-
-  Widget _buildLegend() {
-    if (!_showLegend) return const SizedBox.shrink();
-
-    return Positioned(
-      bottom: (100).h + MediaQuery.of(context).padding.bottom,
-      left: _topBarPadding.w,
-      child: _LegendWidget(onClose: _toggleLegend),
-    );
-  }
-
-  // ========================================================================
-  // Floating Action Buttons
-  // ========================================================================
-
-  Widget _buildFloatingButtons() {
-    return Positioned(
-      bottom: _bottomPadding.h + MediaQuery.of(context).padding.bottom,
-      right: _topBarPadding.w,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          _buildLegendButton(),
-          SizedBox(height: _bottomButtonSpacing.h),
-          _buildLocationButton(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLegendButton() {
-    return FloatingActionButton(
-      heroTag: 'legend_btn',
-      backgroundColor: Colors.white,
-      elevation: 6,
-      highlightElevation: 8,
-      mini: true,
-      onPressed: _toggleLegend,
-      child: Icon(
-        _showLegend ? Icons.close : Icons.info_outline,
-        color: Theme.of(context).primaryColor,
-        size: 22.sp,
-      ),
-    );
-  }
-
-  Widget _buildLocationButton() {
-    return FloatingActionButton(
-      heroTag: 'location_btn',
-      elevation: 6,
-      highlightElevation: 8,
-      onPressed: () {
-        if (_currentLocation != null) {
-          _animateToLocation(_currentLocation!);
-        } else {
-          _getCurrentLocation();
-        }
+          myLocationEnabled: true,
+          myLocationButtonEnabled: false, // Custom button used
+          zoomControlsEnabled: false,
+          mapToolbarEnabled: false,
+          compassEnabled: false,
+          liteModeEnabled: false,
+          rotateGesturesEnabled: true,
+          tiltGesturesEnabled: false,
+          onTap: (_) {
+            FocusScope.of(context).unfocus();
+            _cubit.selectProvider(null);
+          },
+        );
       },
-      child: Icon(
-        _isLocationLoading ? Icons.gps_not_fixed : Icons.my_location,
-        color: Colors.white,
-        size: 24.sp,
-      ),
     );
   }
 
-  // ========================================================================
-  // Loading States
-  // ========================================================================
-
-  Widget _buildLoadingPlaceholder() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation<Color>(
-              Theme.of(context).primaryColor,
-            ),
-          ),
-          SizedBox(height: 16.h),
-          Text(
-            context.tr('loading_centers'),
-            style: TextStyle(fontSize: 14.sp, color: Colors.grey[600]),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLocationLoadingOverlay() {
-    return Positioned(
-      bottom: _bottomPadding.h + 50.h + MediaQuery.of(context).padding.bottom,
-      right: _topBarPadding.w,
-      child: Container(
-        padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(8.r),
-          boxShadow: const [_defaultBoxShadow],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 16.w,
-              height: 16.w,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation<Color>(
-                  Theme.of(context).primaryColor,
-                ),
-              ),
-            ),
-            SizedBox(width: 8.w),
-            Text(
-              context.tr('location_loading'),
-              style: TextStyle(fontSize: 12.sp, color: Colors.grey[700]),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ============================================================================
-// FILTER OVERLAY WIDGET
-// ============================================================================
-
-class _FilterOverlayWidget extends StatelessWidget {
-  final MapProvidersCubit cubit;
-
-  const _FilterOverlayWidget({required this.cubit});
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildFloatingSearchBar() {
     return Container(
-      padding: EdgeInsets.all(14.w),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18.r),
+        borderRadius: BorderRadius.circular(30.r),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.15),
+            color: Colors.black.withOpacity(0.12),
             blurRadius: 16,
             offset: const Offset(0, 4),
           ),
         ],
       ),
-      child: BlocBuilder<MapProvidersCubit, MapProvidersState>(
-        builder: (context, state) {
-          if (state is! MapProvidersLoaded) {
-            return const SizedBox.shrink();
-          }
-
-          final selectedCount = state.selectedTypes.length;
-
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Header
-              Padding(
-                padding: EdgeInsets.only(bottom: 10.h),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      selectedCount > 0
-                          ? context.trWithCount('selected_count', selectedCount)
-                          : context.tr('filter_by_type'),
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13.sp,
-                        color: Colors.grey[800],
-                      ),
-                    ),
-                    if (selectedCount > 0)
-                      GestureDetector(
-                        onTap: () => cubit.clearFilters(),
-                        child: Text(
-                          context.tr('reset_filters'),
-                          style: TextStyle(
-                            fontSize: 12.sp,
-                            color: Theme.of(context).primaryColor,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                  ],
+      child: Material(
+        color: Colors.transparent,
+        child: Row(
+          children: [
+            SizedBox(width: 16.w),
+            Icon(Icons.search, color: Colors.grey[600], size: 22.sp),
+            SizedBox(width: 12.w),
+            Expanded(
+              child: TextField(
+                controller: _searchController,
+                onChanged: _onSearchChanged,
+                style: TextStyle(fontSize: 14.sp, color: Colors.black87),
+                decoration: InputDecoration(
+                  hintText: context.tr('search_hint'),
+                  hintStyle:
+                      TextStyle(color: Colors.grey[400], fontSize: 13.sp),
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(vertical: 14.h),
                 ),
               ),
-              const Divider(height: 1),
-              SizedBox(height: 10.h),
-              // Filter chips
-              Wrap(
-                spacing: 8.w,
-                runSpacing: 8.h,
-                children: [
-                  _buildFilterChip(
-                    context.tr('all_types'),
-                    state.selectedTypes.isEmpty,
-                    () => cubit.clearFilters(),
-                    context,
-                  ),
-                  ..._typeIconMap.entries.map((entry) {
-                    final type = entry.key;
-                    final isSelected = state.selectedTypes.contains(type);
-                    return _buildFilterChip(
-                      type,
-                      isSelected,
-                      () => cubit.toggleType(type),
-                      context,
-                    );
-                  }),
-                ],
+            ),
+            // Divider
+            Container(
+              height: 24.h,
+              width: 1,
+              color: Colors.grey[300],
+              margin: EdgeInsets.symmetric(horizontal: 4.w),
+            ),
+            // Filter Toggle
+            IconButton(
+              icon: Icon(
+                _isFilterExpanded ? Icons.filter_list_off : Icons.filter_list,
+                color: _isFilterExpanded
+                    ? Theme.of(context).primaryColor
+                    : Colors.grey[600],
+                size: 22.sp,
               ),
-            ],
-          );
-        },
+              onPressed: () {
+                HapticFeedback.selectionClick();
+                setState(() => _isFilterExpanded = !_isFilterExpanded);
+              },
+            ),
+            SizedBox(width: 4.w),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildFilterChip(
-    String label,
-    bool isSelected,
-    VoidCallback onTap,
-    BuildContext context,
-  ) {
-    return FilterChip(
-      label: Text(label),
-      selected: isSelected,
-      onSelected: (_) {
-        HapticFeedback.lightImpact();
-        onTap();
+  Widget _buildFloatingControls() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        _buildFab(
+          heroTag: 'legend_fab',
+          icon: _showLegend ? Icons.close : Icons.info_outline,
+          onTap: () {
+            HapticFeedback.selectionClick();
+            setState(() => _showLegend = !_showLegend);
+          },
+          backgroundColor: Colors.white,
+          iconColor: Theme.of(context).primaryColor,
+        ),
+        SizedBox(height: 12.h),
+        _buildFab(
+          heroTag: 'location_fab',
+          icon: _isLocationLoading ? Icons.gps_not_fixed : Icons.my_location,
+          onTap: () {
+            HapticFeedback.selectionClick();
+            _getCurrentLocation(animate: true);
+          },
+          isLoading: _isLocationLoading,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFab({
+    required String heroTag,
+    required IconData icon,
+    required VoidCallback onTap,
+    Color? backgroundColor,
+    Color? iconColor,
+    bool isLoading = false,
+  }) {
+    return SizedBox(
+      width: 50.w,
+      height: 50.w,
+      child: FloatingActionButton(
+        heroTag: heroTag,
+        onPressed: onTap,
+        backgroundColor: backgroundColor ?? Theme.of(context).primaryColor,
+        elevation: 6,
+        highlightElevation: 10,
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.r)),
+        child: isLoading
+            ? Padding(
+                padding: EdgeInsets.all(14.w),
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  valueColor: AlwaysStoppedAnimation(iconColor ?? Colors.white),
+                ),
+              )
+            : Icon(icon, color: iconColor ?? Colors.white, size: 24.sp),
+      ),
+    );
+  }
+
+  void _showProviderDetails(ProviderEntity provider) {
+    HapticFeedback.mediumImpact();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ProviderDetailsSheet(provider: provider),
+    ).whenComplete(() {
+      // Clear selection when sheet closes
+      _cubit.selectProvider(null);
+    });
+  }
+}
+
+// ============================================================================
+// SUB-WIDGETS
+// ============================================================================
+
+class _FilterChipsList extends StatelessWidget {
+  final MapProvidersCubit cubit;
+  const _FilterChipsList({required this.cubit});
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<MapProvidersCubit, MapProvidersState>(
+      // Only rebuild if selected types change
+      buildWhen: (previous, current) {
+        if (previous is MapProvidersLoaded && current is MapProvidersLoaded) {
+          return previous.selectedTypes != current.selectedTypes;
+        }
+        return true;
       },
-      checkmarkColor: Colors.white,
-      selectedColor: Theme.of(context).primaryColor,
-      backgroundColor: Colors.grey[100],
-      labelStyle: TextStyle(
-        color: isSelected ? Colors.white : Colors.black87,
-        fontSize: 12.sp,
+      builder: (context, state) {
+        if (state is! MapProvidersLoaded) return const SizedBox();
+
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          child: Row(
+            children: [
+              _buildFilterChip(
+                context,
+                label: context.tr('all_types'),
+                isSelected: state.selectedTypes.isEmpty,
+                onTap: () => cubit.clearFilters(),
+              ),
+              ..._typeIconMap.keys.map((type) {
+                final isSelected = state.selectedTypes.contains(type);
+                return _buildFilterChip(
+                  context,
+                  label: type,
+                  isSelected: isSelected,
+                  onTap: () => cubit.toggleType(type),
+                  iconData: _typeIconMap[type]?['icon'],
+                  color: _typeIconMap[type]?['color'],
+                );
+              }),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildFilterChip(
+    BuildContext context, {
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+    IconData? iconData,
+    Color? color,
+  }) {
+    final themeColor = color ?? Theme.of(context).primaryColor;
+
+    return Padding(
+      padding: EdgeInsets.only(right: 8.w),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        decoration: BoxDecoration(
+          color: isSelected ? themeColor : Colors.white,
+          borderRadius: BorderRadius.circular(20.r),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+          border: isSelected ? null : Border.all(color: Colors.grey[200]!),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(20.r),
+            onTap: () {
+              HapticFeedback.lightImpact();
+              onTap();
+            },
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 8.h),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (iconData != null) ...[
+                    Icon(
+                      iconData,
+                      size: 16.sp,
+                      color: isSelected ? Colors.white : themeColor,
+                    ),
+                    SizedBox(width: 6.w),
+                  ],
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: isSelected ? Colors.white : Colors.black87,
+                      fontWeight:
+                          isSelected ? FontWeight.w600 : FontWeight.w500,
+                      fontSize: 12.sp,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
 }
 
-// ============================================================================
-// LEGEND WIDGET
-// ============================================================================
-
 class _LegendWidget extends StatelessWidget {
   final VoidCallback onClose;
-
   const _LegendWidget({required this.onClose});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.all(12.w),
+      padding: EdgeInsets.all(16.w),
+      width: 220.w,
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12.r),
-        boxShadow: const [_defaultBoxShadow],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Header
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                context.tr('legend_title'),
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14.sp,
-                ),
-              ),
-              SizedBox(width: 8.w),
-              Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: onClose,
-                  child: Icon(Icons.close, size: 20.sp),
-                ),
-              )
-            ],
-          ),
-          const Divider(),
-          // Legend items
-          ..._typeIconMap.entries.map((e) {
-            return Padding(
-              padding: EdgeInsets.symmetric(vertical: 4.h),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    e.value['icon'] as IconData,
-                    color: e.value['color'] as Color,
-                    size: 18.sp,
-                  ),
-                  SizedBox(width: 8.w),
-                  Text(
-                    e.key,
-                    style: TextStyle(fontSize: 12.sp),
-                  ),
-                ],
-              ),
-            );
-          }).toList(),
+        color: Colors.white.withOpacity(0.96),
+        borderRadius: BorderRadius.circular(16.r),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black12,
+              blurRadius: 16,
+              offset: const Offset(0, 4)),
         ],
+        border: Border.all(color: Colors.white.withOpacity(0.4)),
+      ),
+      child: BackdropFilter(
+        // Create glass effect
+        filter: ui.ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  context.tr('legend_title'),
+                  style:
+                      TextStyle(fontWeight: FontWeight.bold, fontSize: 13.sp),
+                ),
+                InkWell(
+                  onTap: onClose,
+                  child: Padding(
+                    padding: const EdgeInsets.all(4.0),
+                    child:
+                        Icon(Icons.close, size: 18.sp, color: Colors.grey[600]),
+                  ),
+                ),
+              ],
+            ),
+            Divider(height: 16.h),
+            ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: 200.h),
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                child: Column(
+                  children: _typeIconMap.entries
+                      .map((e) => Padding(
+                            padding: EdgeInsets.only(bottom: 10.h),
+                            child: Row(
+                              children: [
+                                Icon(e.value['icon'],
+                                    color: e.value['color'], size: 18.sp),
+                                SizedBox(width: 8.w),
+                                Expanded(
+                                  child: Text(
+                                    e.key,
+                                    style: TextStyle(
+                                        fontSize: 12.sp,
+                                        color: Colors.grey[800]),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ))
+                      .toList(),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-// ============================================================================
-// PROVIDER DETAILS SHEET
-// ============================================================================
-
 class _ProviderDetailsSheet extends StatelessWidget {
   final ProviderEntity provider;
-
   const _ProviderDetailsSheet({required this.provider});
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24.r)),
-        ),
-        padding: EdgeInsets.all(24.w),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24.r)),
+        boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 30)],
+      ),
+      padding: EdgeInsets.fromLTRB(24.w, 12.h, 24.w, 32.h),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Drag Handle
+          Center(
+            child: Container(
+              width: 40.w,
+              height: 4.h,
+              margin: EdgeInsets.only(bottom: 24.h),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2.r),
+              ),
+            ),
+          ),
+
+          // Header
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Handle
-              Center(
-                child: Container(
-                  width: 40.w,
-                  height: 4.h,
-                  margin: EdgeInsets.only(bottom: 12.h),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(2.r),
-                  ),
+              Container(
+                padding: EdgeInsets.all(12.w),
+                decoration: BoxDecoration(
+                  color: (_typeIconMap[provider.type]?['color'] ??
+                          Theme.of(context).primaryColor)
+                      .withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(16.r),
+                ),
+                child: Icon(
+                  _typeIconMap[provider.type]?['icon'] ?? Icons.local_hospital,
+                  color: _typeIconMap[provider.type]?['color'] ??
+                      Theme.of(context).primaryColor,
+                  size: 32.sp,
                 ),
               ),
-
-              // Provider name
-              Text(
-                provider.name,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 20.sp,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-
-              SizedBox(height: 8.h),
-
-              // Provider type
-              Center(
-                child: Container(
-                  padding:
-                      EdgeInsets.symmetric(horizontal: 12.w, vertical: 6.h),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[100],
-                    borderRadius: BorderRadius.circular(12.r),
-                  ),
-                  child: Text(
-                    provider.type,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.grey[700],
-                      fontSize: 12.sp,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ),
-
-              SizedBox(height: 16.h),
-              const Divider(),
-
-              // Provider details
-              _InfoRow(Icons.place, provider.address),
-              _InfoRow(Icons.phone, provider.phone, isPhone: true),
-              if (provider.discountPct.isNotEmpty)
-                _InfoRow(Icons.discount, 'خصم: ${provider.discountPct}%'),
-
-              SizedBox(height: 20.h),
-
-              // Action buttons
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () => _launchUrl('tel:${provider.phone}'),
-                      icon: const Icon(Icons.call),
-                      label: Text(context.tr('call_button')),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
+              SizedBox(width: 16.w),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      provider.name,
+                      style: TextStyle(
+                        fontSize: 18.sp,
+                        fontWeight: FontWeight.bold,
+                        height: 1.2,
+                        color: Colors.black87,
                       ),
                     ),
-                  ),
-                  SizedBox(width: 12.w),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () => _launchUrl(provider.mapUrl),
-                      icon: const Icon(Icons.map),
-                      label: Text(context.tr('location_button')),
+                    SizedBox(height: 6.h),
+                    Container(
+                      padding:
+                          EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(6.r),
+                      ),
+                      child: Text(
+                        provider.type,
+                        style: TextStyle(
+                            color: Colors.grey[700],
+                            fontSize: 12.sp,
+                            fontWeight: FontWeight.w500),
+                      ),
                     ),
-                  ),
-                ],
-              )
+                  ],
+                ),
+              ),
             ],
           ),
-        ),
+
+          SizedBox(height: 24.h),
+          Divider(color: Colors.grey[100], height: 1),
+          SizedBox(height: 20.h),
+
+          // Details
+          _DetailRow(icon: Icons.place_outlined, text: provider.address),
+          if (provider.phone.isNotEmpty)
+            _DetailRow(
+                icon: Icons.phone_outlined,
+                text: provider.phone,
+                isPhone: true),
+          if (provider.discountPct.isNotEmpty)
+            _DetailRow(
+              icon: Icons.local_offer_outlined,
+              text: '${context.tr('discount')}: ${provider.discountPct}%',
+              color: Colors.green[700],
+              hasBg: true,
+            ),
+
+          SizedBox(height: 24.h),
+
+          // Action Buttons
+          Row(
+            children: [
+              Expanded(
+                child: _MainActionButton(
+                  icon: Icons.call,
+                  label: context.tr('call_button'),
+                  color: Colors.green,
+                  onTap: () => _launchUrl('tel:${provider.phone}'),
+                ),
+              ),
+              SizedBox(width: 12.w),
+              Expanded(
+                child: _MainActionButton(
+                  icon: Icons.map,
+                  label: context.tr('location_button'),
+                  color: Theme.of(context).primaryColor,
+                  onTap: () => _launchUrl(provider.mapUrl),
+                  isOutlined: true,
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
   Future<void> _launchUrl(String url) async {
+    if (url.isEmpty) return;
     try {
-      final uri = Uri.parse(url);
-      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-        debugPrint('Could not launch $url');
-      }
-    } catch (e) {
-      debugPrint('Error launching URL: $e');
-    }
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    } catch (_) {}
   }
 }
 
-// ============================================================================
-// INFO ROW WIDGET
-// ============================================================================
-
-class _InfoRow extends StatelessWidget {
+class _DetailRow extends StatelessWidget {
   final IconData icon;
   final String text;
   final bool isPhone;
+  final Color? color;
+  final bool hasBg;
 
-  const _InfoRow(
-    this.icon,
-    this.text, {
+  const _DetailRow({
+    required this.icon,
+    required this.text,
     this.isPhone = false,
+    this.color,
+    this.hasBg = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    if (hasBg) {
+      return Container(
+        margin: EdgeInsets.only(bottom: 12.h),
+        padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+        decoration: BoxDecoration(
+          color: (color ?? Colors.blue).withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8.r),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 18.sp, color: color),
+            SizedBox(width: 12.w),
+            Expanded(
+              child: Text(
+                text,
+                style: TextStyle(
+                  fontSize: 14.sp,
+                  color: color,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: 8.h),
+      padding: EdgeInsets.only(bottom: 14.h),
       child: Row(
-        textDirection: TextDirection.rtl,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 20.sp, color: Theme.of(context).primaryColor),
+          Icon(icon, size: 20.sp, color: Colors.grey[400]),
           SizedBox(width: 12.w),
           Expanded(
             child: Text(
               text,
-              textAlign: TextAlign.right,
-              textDirection: isPhone ? TextDirection.ltr : TextDirection.rtl,
-              style: TextStyle(fontSize: 14.sp),
+              style: TextStyle(
+                fontSize: 14.sp,
+                color: Colors.grey[800],
+                fontWeight: FontWeight.w400,
+                height: 1.3,
+                fontFamily: isPhone ? 'Roboto' : null,
+              ),
+              textAlign: TextAlign.start,
             ),
           ),
         ],
@@ -1104,221 +932,180 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
+class _MainActionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+  final bool isOutlined;
+
+  const _MainActionButton({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+    this.isOutlined = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: isOutlined ? Colors.transparent : color,
+      borderRadius: BorderRadius.circular(14.r),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14.r),
+        child: Container(
+          padding: EdgeInsets.symmetric(vertical: 14.h),
+          decoration: BoxDecoration(
+            border: isOutlined
+                ? Border.all(color: color.withOpacity(0.4), width: 1.5)
+                : null,
+            borderRadius: BorderRadius.circular(14.r),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: isOutlined ? color : Colors.white, size: 20.sp),
+              SizedBox(width: 8.w),
+              Text(
+                label,
+                style: TextStyle(
+                  color: isOutlined ? color : Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14.sp,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ============================================================================
-// BITMAP ICON CACHE
+// HELPERS
 // ============================================================================
 
-/// Manages and caches bitmap icons for provider types to improve performance
 class _MapIconCache {
-  final Map<String, BitmapDescriptor> _iconCache = {};
-  final Map<String, BitmapDescriptor> _selectedIconCache = {};
+  // Static cache to persist across instances
+  static final Map<String, BitmapDescriptor> _staticIconCache = {};
+  static final Map<String, BitmapDescriptor> _staticSelectedIconCache = {};
+  static bool _isGenerated = false;
 
-  bool get isInitialized => _iconCache.isNotEmpty;
+  Future<void> generateTypeIcons(Map<String, Map<String, dynamic>> typeIconMap) async {
+    if (_isGenerated) return; // Return immediately if already generated
 
-  /// Generate and cache icons for all provider types
-  Future<void> generateTypeIcons(
-    Map<String, Map<String, dynamic>> typeIconMap,
-  ) async {
     try {
-      for (final entry in typeIconMap.entries) {
+      final futures = <Future>[];
+
+      // Use Future.wait to run all generation in parallel on the event loop
+      // (Actually it's single threaded but platform channel calls are async)
+
+      // Defaults
+      futures.add(_BitmapGenerator.create(Icons.location_on, Colors.blue, _iconSizeNormal)
+          .then((icon) => _staticIconCache['default'] = icon));
+      futures.add(_BitmapGenerator.create(Icons.location_on, Colors.blue, _iconSizeSelected, isSelected: true)
+          .then((icon) => _staticSelectedIconCache['default'] = icon));
+
+      // Custom Types
+      for (var entry in typeIconMap.entries) {
         final type = entry.key;
-        final iconData = entry.value['icon'] as IconData;
+        final icon = entry.value['icon'] as IconData;
         final color = entry.value['color'] as Color;
 
-        // Generate normal icons
-        _iconCache[type] = await _BitmapGenerator.fromIcon(
-          iconData,
-          color,
-          size: _iconDefaultSize.toInt(),
-        );
-
-        // Generate selected icons
-        _selectedIconCache[type] = await _BitmapGenerator.fromIcon(
-          iconData,
-          color,
-          size: _iconSelectedSize.toInt(),
-          isSelected: true,
-        );
+        futures.add(_BitmapGenerator.create(icon, color, _iconSizeNormal)
+            .then((desc) => _staticIconCache[type] = desc));
+        futures.add(_BitmapGenerator.create(icon, color, _iconSizeSelected, isSelected: true)
+            .then((desc) => _staticSelectedIconCache[type] = desc));
       }
 
-      // Generate default icons
-      _iconCache['default'] = await _BitmapGenerator.fromIcon(
-        Icons.location_on,
-        Colors.blue,
-        size: _iconDefaultSize.toInt(),
-      );
-
-      _selectedIconCache['default'] = await _BitmapGenerator.fromIcon(
-        Icons.location_on,
-        Colors.blue,
-        size: _iconSelectedSize.toInt(),
-        isSelected: true,
-      );
+      await Future.wait(futures);
+      _isGenerated = true;
     } catch (e) {
       debugPrint('Error generating icons: $e');
     }
   }
 
-  /// Get icon for a provider type
-  BitmapDescriptor? getIcon(String type) => _iconCache[type];
+  BitmapDescriptor? getIcon(String type) => _staticIconCache[type];
+  BitmapDescriptor? getSelectedIcon(String type) => _staticSelectedIconCache[type];
+  BitmapDescriptor? getDefaultIcon() => _staticIconCache['default'];
+  BitmapDescriptor? getDefaultSelectedIcon() => _staticSelectedIconCache['default'];
 
-  /// Get selected icon for a provider type
-  BitmapDescriptor? getSelectedIcon(String type) => _selectedIconCache[type];
-
-  /// Get default icon
-  BitmapDescriptor? getDefaultIcon() => _iconCache['default'];
-
-  /// Get default selected icon
-  BitmapDescriptor? getDefaultSelectedIcon() => _selectedIconCache['default'];
-
-  /// Clear cache
   void dispose() {
-    _iconCache.clear();
-    _selectedIconCache.clear();
+    // We do NOT clear the static cache on dispose to keep them for next time
   }
 }
 
-// ============================================================================
-// BITMAP GENERATOR
-// ============================================================================
-
-/// Generates bitmap icons from Flutter IconData
 class _BitmapGenerator {
-  static Future<BitmapDescriptor> fromIcon(
-    IconData iconData,
-    Color color, {
-    int size = 80,
-    bool isSelected = false,
-  }) async {
-    final ui.PictureRecorder pictureRecorder = ui.PictureRecorder();
-    final Canvas canvas = Canvas(pictureRecorder);
-    final double iconSize = size.toDouble();
+  /// Generates a [BitmapDescriptor] from an icon.
+  /// Minimizes heavy painting operations.
+  static Future<BitmapDescriptor> create(
+      IconData icon, Color color, double size,
+      {bool isSelected = false}) async {
+    final ui.PictureRecorder recorder = ui.PictureRecorder();
+    final Canvas canvas = Canvas(recorder);
+    final double s = size;
+    final double center = s / 2;
 
-    // Draw background circle
-    final Paint backgroundPaint = Paint()
-      ..color = isSelected ? color : Colors.white;
-    canvas.drawCircle(
-      Offset(iconSize / 2, iconSize / 2),
-      iconSize / 2,
-      backgroundPaint,
-    );
+    // 1. Draw Shadow (Subtle)
+    // Reduce shadow blur for performance if needed, but keeping it for UX
+    final path = Path()
+      ..addOval(
+          Rect.fromCircle(center: Offset(center, center), radius: center - 4));
+    canvas.drawShadow(path, Colors.black.withOpacity(0.25), 4.0, true);
 
-    // Draw border circle
+    // 2. Background
+    final Paint bgPaint = Paint()..color = isSelected ? color : Colors.white;
+    canvas.drawCircle(Offset(center, center), center - 4, bgPaint);
+
+    // 3. Border (Thicker for contrast)
     final Paint borderPaint = Paint()
       ..color = isSelected ? Colors.white : color
       ..style = PaintingStyle.stroke
       ..strokeWidth = _iconBorderWidth;
-    canvas.drawCircle(
-      Offset(iconSize / 2, iconSize / 2),
-      iconSize / 2 - 2,
-      borderPaint,
-    );
+    canvas.drawCircle(Offset(center, center), center - 6, borderPaint);
 
-    // Draw icon
-    final TextPainter textPainter = TextPainter(
-      textDirection: TextDirection.ltr,
-    );
-    textPainter.text = TextSpan(
-      text: String.fromCharCode(iconData.codePoint),
+    // 4. Icon
+    final TextPainter tp = TextPainter(textDirection: TextDirection.ltr);
+    tp.text = TextSpan(
+      text: String.fromCharCode(icon.codePoint),
       style: TextStyle(
-        fontSize: iconSize * 0.6,
-        fontFamily: iconData.fontFamily,
-        package: iconData.fontPackage,
+        fontSize: s * 0.55,
+        fontFamily: icon.fontFamily,
+        package: icon.fontPackage,
         color: isSelected ? Colors.white : color,
       ),
     );
-    textPainter.layout();
-    textPainter.paint(
-      canvas,
-      Offset(
-        (iconSize - textPainter.width) / 2,
-        (iconSize - textPainter.height) / 2,
-      ),
-    );
+    tp.layout();
+    tp.paint(canvas, Offset((s - tp.width) / 2, (s - tp.height) / 2));
 
-    final img = await pictureRecorder.endRecording().toImage(size, size);
+    final img = await recorder.endRecording().toImage(s.toInt(), s.toInt());
     final data = await img.toByteData(format: ui.ImageByteFormat.png);
     return BitmapDescriptor.fromBytes(data!.buffer.asUint8List());
   }
 }
 
-// ============================================================================
-// LOCATION SERVICE
-// ============================================================================
-
-/// Handles location permissions and location fetching
 class _LocationService {
-  static Future<LatLng?> getCurrentLocation(BuildContext context) async {
+  static Future<LatLng?> getCurrentLocation() async {
     try {
-      // Check if location services are enabled
-      final bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        _showLocationDisabledDialog(context);
-        return null;
-      }
+      bool enabled = await Geolocator.isLocationServiceEnabled();
+      if (!enabled) return null;
 
-      // Check and request permissions
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          return null;
-        }
+      LocationPermission p = await Geolocator.checkPermission();
+      if (p == LocationPermission.denied) {
+        p = await Geolocator.requestPermission();
+        if (p == LocationPermission.denied) return null;
       }
+      if (p == LocationPermission.deniedForever) return null;
 
-      if (permission == LocationPermission.deniedForever) {
-        _showLocationPermissionDialog(context);
-        return null;
-      }
-
-      // Get current position
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
+      final pos = await Geolocator.getCurrentPosition(
+        timeLimit: const Duration(seconds: 5), // Fail fast
       );
-
-      return LatLng(position.latitude, position.longitude);
-    } catch (e) {
-      debugPrint('Error getting location: $e');
+      return LatLng(pos.latitude, pos.longitude);
+    } catch (_) {
       return null;
     }
-  }
-
-  static void _showLocationDisabledDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) => AlertDialog(
-        title: Text(context.tr('location_disabled_title')),
-        content: Text(context.tr('location_disabled_msg')),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(context.tr('ok')),
-          ),
-        ],
-      ),
-    );
-  }
-
-  static void _showLocationPermissionDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) => AlertDialog(
-        title: Text(context.tr('location_permission_title')),
-        content: Text(context.tr('location_permission_msg')),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(context.tr('ok')),
-          ),
-          TextButton(
-            onPressed: () {
-              Geolocator.openLocationSettings();
-              Navigator.of(context).pop();
-            },
-            child: Text(context.tr('settings')),
-          ),
-        ],
-      ),
-    );
   }
 }
