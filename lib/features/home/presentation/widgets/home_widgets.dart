@@ -294,7 +294,7 @@ class TopProviderCardHome extends StatelessWidget {
               ClipRRect(
                 borderRadius: BorderRadius.vertical(top: Radius.circular(16.r)),
                 child: Container(
-                  height: 100.h,
+                  height: 90.h,
                   width: double.infinity,
                   color: Colors.white,
                   child: provider.logoUrl.isNotEmpty
@@ -305,7 +305,8 @@ class TopProviderCardHome extends StatelessWidget {
                             child: SizedBox(
                               width: 30.w,
                               height: 30.w,
-                              child: const CircularProgressIndicator(strokeWidth: 2),
+                              child: const CircularProgressIndicator(
+                                  strokeWidth: 2),
                             ),
                           ),
                           errorWidget: (context, url, error) => Center(
@@ -343,6 +344,8 @@ class TopProviderCardHome extends StatelessWidget {
                     SizedBox(height: 4.h),
                     Text(
                       provider.typeArabic,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 12.sp,
                         color: Theme.of(context).primaryColor,
